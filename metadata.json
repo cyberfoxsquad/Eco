@@ -1,0 +1,6 @@
+{
+  "name": "EcoCollect",
+  "description": "Communal Smart Waste Management System with AI waste scanning, point-to-cash rewards, weekly leaderboards, and admin analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
