@@ -24,7 +24,6 @@ import com.example.ui.components.EcoBottomBar
 import com.example.ui.components.EcoTopBar
 import com.example.ui.navigation.Screen
 import com.example.ui.screens.AdminScreen
-import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.DisposalScreen
 import com.example.ui.screens.ForbiddenScreen
 import com.example.ui.screens.HomeScreen
@@ -61,59 +60,45 @@ fun EcoCollectApp(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            if (currentRoute != Screen.Auth.route) {
-                EcoTopBar(
-                    currentUser = currentUser,
-                    currentRoute = currentRoute,
-                    onOpenProfile = {
-                        navController.navigate(Screen.Profile.route) {
-                            launchSingleTop = true
-                        }
-                    },
-                    onOpenRoleSwitcher = {
-                        showAccountSwitcher = true
+            EcoTopBar(
+                currentUser = currentUser,
+                currentRoute = currentRoute,
+                onOpenProfile = {
+                    navController.navigate(Screen.Profile.route) {
+                        launchSingleTop = true
                     }
-                )
-            }
+                },
+                onOpenRoleSwitcher = {
+                    showAccountSwitcher = true
+                }
+            )
         },
         bottomBar = {
-            if (currentRoute != Screen.Auth.route) {
-                EcoBottomBar(
-                    currentRoute = currentRoute,
-                    onNavigate = { route ->
-                        if (route == Screen.Admin.route && currentUser?.role != "admin") {
-                            navController.navigate(Screen.Forbidden.route) {
-                                launchSingleTop = true
-                            }
-                        } else {
-                            navController.navigate(route) {
-                                popUpTo(Screen.Home.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+            EcoBottomBar(
+                currentRoute = currentRoute,
+                onNavigate = { route ->
+                    if (route == Screen.Admin.route && currentUser?.role != "admin") {
+                        navController.navigate(Screen.Forbidden.route) {
+                            launchSingleTop = true
+                        }
+                    } else {
+                        navController.navigate(route) {
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
-                )
-            }
+                }
+            )
         }
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Auth.route,
+            startDestination = Screen.Home.route,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            composable(Screen.Auth.route) {
-                AuthScreen(
-                    viewModel = viewModel,
-                    onNavigateHome = {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Auth.route) { inclusive = true }
-                        }
-                    }
-                )
-            }
             composable(Screen.Home.route) {
                 HomeScreen(
                     viewModel = viewModel,

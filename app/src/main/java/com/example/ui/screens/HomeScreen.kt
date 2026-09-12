@@ -418,42 +418,6 @@ fun HomeScreen(
             }
         }
 
-        // Firebase Cloud Firestore & Auth Sync Badge
-        item {
-            Surface(
-                color = Color(0xFFFFFBEB),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDE68A)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Sync,
-                        contentDescription = null,
-                        tint = Color(0xFFD97706),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Firebase Auth & Cloud Firestore Connected",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = Color(0xFF92400E)
-                        )
-                        Text(
-                            text = "Your waste disposals, reward points, and profile persist securely in the cloud.",
-                            fontSize = 10.sp,
-                            color = Color(0xFFB45309)
-                        )
-                    }
-                }
-            }
-        }
-
         // Quick Actions 2x2 Grid
         item {
             Text(

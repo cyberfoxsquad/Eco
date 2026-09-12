@@ -10,36 +10,25 @@ import com.example.data.model.DisposalLogEntity
 import com.example.data.model.UserEntity
 import com.example.data.model.WasteScanResult
 import com.example.data.model.WalletTransactionEntity
-import com.example.data.remote.FirebaseService
 import com.example.data.remote.GeminiWasteClassifier
 import com.example.data.repository.EcoRepository
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class EcoViewModel(application: Application) : AndroidViewModel(application) {
 
-    val firebaseService = FirebaseService.getInstance(application)
     private val db = EcoCollectDatabase.getDatabase(application)
     private val repository = EcoRepository(
         userDao = db.userDao(),
         disposalDao = db.disposalDao(),
         walletDao = db.walletDao(),
-        binDao = db.binDao(),
-        firebaseService = firebaseService
+        binDao = db.binDao()
     )
     private val geminiClassifier = GeminiWasteClassifier()
-
-    private var firestoreUserJob: Job? = null
-
-    // Firebase & Cloud Status
-    private val _isFirebaseActive = MutableStateFlow(firebaseService.auth != null && firebaseService.firestore != null)
-    val isFirebaseActive: StateFlow<Boolean> = _isFirebaseActive.asStateFlow()
 
     // Current Session
     private val _currentUserId = MutableStateFlow("")
@@ -120,33 +109,16 @@ class EcoViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             repository.initializeDefaultDataIfEmpty()
-
-            // Observe real users from Firestore in real-time
-            repository.observeAllRealUsersFromFirestore()?.collect { realUsers ->
-                for (u in realUsers) {
-                    repository.saveUser(u)
-                }
-            }
-        }
-
-        viewModelScope.launch {
-            val firebaseUser = firebaseService.currentFirebaseUser
-            val targetUserId = if (firebaseUser != null) {
-                firebaseUser.uid
-            } else {
-                repository.getFirstRealUser()?.id
-            }
-
-            if (!targetUserId.isNullOrBlank()) {
-                _currentUserId.value = targetUserId
-                refreshCurrentUserData(targetUserId)
-            }
+            val initialUser = repository.getFirstRealUser()
+            val targetUserId = initialUser?.id ?: "citizen_primary_1"
+            _currentUserId.value = targetUserId
+            refreshCurrentUserData(targetUserId)
         }
     }
 
     private suspend fun refreshCurrentUserData(userId: String) {
         if (userId.isBlank()) return
-        val user = repository.getUser(userId) ?: repository.syncUserFromFirestore(userId)
+        val user = repository.getUser(userId)
         _currentUser.value = user
 
         // Stream local room disposals
@@ -160,17 +132,6 @@ class EcoViewModel(application: Application) : AndroidViewModel(application) {
                 _userTransactions.value = it
             }
         }
-
-        // Live Firestore sync for user document (pointsBalance, totalKg, etc.)
-        firestoreUserJob?.cancel()
-        firestoreUserJob = viewModelScope.launch {
-            repository.observeFirestoreUser(userId)?.collect { firestoreUser ->
-                if (firestoreUser != null) {
-                    _currentUser.value = firestoreUser
-                    repository.saveUser(firestoreUser)
-                }
-            }
-        }
     }
 
     fun switchUser(userId: String) {
@@ -180,127 +141,11 @@ class EcoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun logout() {
-        firestoreUserJob?.cancel()
+    fun resetToCitizen() {
         viewModelScope.launch {
-            firebaseService.signOut()
-        }
-        _currentUser.value = null
-        _userDisposals.value = emptyList()
-        _userTransactions.value = emptyList()
-    }
-
-    /**
-     * Google Sign-in with Firebase Auth via Credential Manager
-     */
-    fun signInWithGoogle(onResult: (Boolean, String?) -> Unit) {
-        viewModelScope.launch {
-            val result = firebaseService.signInWithGoogle()
-            if (result.isSuccess) {
-                val firebaseUser = result.getOrNull()
-                if (firebaseUser != null) {
-                    val uid = firebaseUser.uid
-                    val email = firebaseUser.email ?: "google.user@example.com"
-                    val displayName = firebaseUser.displayName?.ifBlank { "Eco Citizen" } ?: "Eco Citizen"
-
-                    // Try to find existing account in local DB or Firestore
-                    val existing = repository.getUser(uid)
-                        ?: repository.getUserByEmail(email)
-                        ?: repository.syncUserFromFirestore(uid)
-
-                    val activeUser = if (existing != null) {
-                        existing
-                    } else {
-                        // Create a fresh user starting strictly at 0 points
-                        val newUser = UserEntity(
-                            id = uid,
-                            email = email,
-                            name = displayName,
-                            role = "user",
-                            phone = "+91 98000 00000",
-                            upiId = "${displayName.lowercase().replace(" ", "")}@upi",
-                            avatarId = "avatar_1",
-                            ward = "Green Valley Ward 4",
-                            pointsBalance = 0,
-                            totalKgDisposed = 0.0,
-                            weeklyKgDisposed = 0.0
-                        )
-                        repository.saveUser(newUser)
-                        newUser
-                    }
-
-                    _currentUserId.value = activeUser.id
-                    refreshCurrentUserData(activeUser.id)
-                    onResult(true, null)
-                } else {
-                    onResult(false, "Google account was received but Firebase user was null")
-                }
-            } else {
-                val err = result.exceptionOrNull()?.message ?: "Google Sign-In failed"
-                onResult(false, err)
-            }
-        }
-    }
-
-    fun login(
-        email: String,
-        role: String,
-        name: String = "Citizen",
-        ward: String = "Green Valley Ward 4",
-        onComplete: (() -> Unit)? = null
-    ) {
-        viewModelScope.launch {
-            val trimmedEmail = email.trim()
-            val trimmedName = name.trim()
-            val existing = repository.getUserByNameAndOrEmail(trimmedName, trimmedEmail)
-                ?: repository.getUserByEmail(trimmedEmail)
-                ?: repository.getUserByNameOrEmail(trimmedName)
-
-            if (existing != null) {
-                _currentUserId.value = existing.id
-                refreshCurrentUserData(existing.id)
-            } else {
-                val registered = repository.registerNewUser(
-                    name = if (trimmedName.isNotBlank()) trimmedName else if (role == "admin") "Municipal Officer" else "Eco Citizen",
-                    email = if (trimmedEmail.isNotBlank()) trimmedEmail else "citizen_${System.currentTimeMillis()}@example.com",
-                    role = role,
-                    ward = ward
-                )
-                _currentUserId.value = registered.id
-                refreshCurrentUserData(registered.id)
-            }
-            onComplete?.invoke()
-        }
-    }
-
-    fun register(
-        name: String,
-        email: String,
-        role: String = "user",
-        ward: String = "Green Valley Ward 4",
-        onComplete: (() -> Unit)? = null
-    ) {
-        viewModelScope.launch {
-            val trimmedName = name.trim().ifBlank { "Eco Citizen" }
-            val trimmedEmail = email.trim().ifBlank { "${trimmedName.lowercase().replace(" ", ".")}@example.com" }
-
-            val existing = repository.getUserByNameAndOrEmail(trimmedName, trimmedEmail)
-            if (existing != null) {
-                // Account already exists with this name/email, log into it
-                _currentUserId.value = existing.id
-                refreshCurrentUserData(existing.id)
-            } else {
-                // Create brand-new user with 0 points
-                val newUser = repository.registerNewUser(
-                    name = trimmedName,
-                    email = trimmedEmail,
-                    role = role,
-                    ward = ward
-                )
-                _currentUserId.value = newUser.id
-                refreshCurrentUserData(newUser.id)
-            }
-            onComplete?.invoke()
+            val citizen = repository.getFirstRealUser()
+            val targetId = citizen?.id ?: "citizen_primary_1"
+            switchUser(targetId)
         }
     }
 

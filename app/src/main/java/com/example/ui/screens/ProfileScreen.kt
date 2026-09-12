@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -57,6 +58,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.components.AccountSwitcherDialog
 import com.example.ui.components.EcoAvatar
 import com.example.ui.navigation.Screen
 import com.example.ui.theme.EcoAmber
@@ -176,7 +178,7 @@ fun ProfileScreen(
             }
         }
 
-        // Firebase Cloud Firestore & Auth Status
+        // Verified Account Status Badge
         item {
             Surface(
                 color = Color(0xFFF0FDF4),
@@ -197,7 +199,7 @@ fun ProfileScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CloudDone,
+                            imageVector = Icons.Default.VerifiedUser,
                             contentDescription = null,
                             tint = EcoEmeraldDark,
                             modifier = Modifier.size(20.dp)
@@ -205,13 +207,13 @@ fun ProfileScreen(
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Cloud Firestore Persistence Active",
+                            text = if (user?.role == "admin") "Municipal Administrator" else "Verified Eco Citizen",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = EcoEmeraldDark
                         )
                         Text(
-                            text = "Cloud UID: ${user?.id ?: "N/A"} • Points: ${user?.pointsBalance ?: 0} pts",
+                            text = "Ward: ${user?.ward ?: "Ward 4"} • Balance: ${user?.pointsBalance ?: 0} pts",
                             fontSize = 11.sp,
                             color = Color(0xFF166534)
                         )
@@ -348,22 +350,33 @@ fun ProfileScreen(
             }
         }
 
-        // Account Switch & Logout
+        // Profile / Role Switch
         item {
+            var showRoleDialog by remember { mutableStateOf(false) }
             OutlinedButton(
                 onClick = {
-                    viewModel.logout()
-                    onNavigate(Screen.Auth.route)
+                    showRoleDialog = true
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .testTag("sign_out_button"),
+                    .testTag("switch_profile_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Switch Account or Sign Out", fontWeight = FontWeight.SemiBold)
+                Text("Switch Active Profile (Citizen / Admin)", fontWeight = FontWeight.SemiBold)
+            }
+
+            if (showRoleDialog) {
+                AccountSwitcherDialog(
+                    currentUser = user,
+                    onDismiss = { showRoleDialog = false },
+                    onSelectUser = { newId ->
+                        viewModel.switchUser(newId)
+                        showRoleDialog = false
+                    }
+                )
             }
         }
     }

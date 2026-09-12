@@ -159,7 +159,9 @@ fun AccountSwitcherDialog(
 
                 val accounts = mutableListOf<Triple<String, String, String>>()
                 if (currentUser != null && currentUser.role == "user") {
-                    accounts.add(Triple(currentUser.id, "${currentUser.name} (Active Citizen Profile)", "${currentUser.ward} • ${currentUser.pointsBalance} pts"))
+                    accounts.add(Triple(currentUser.id, "${currentUser.name} (Citizen Profile)", "${currentUser.ward} • ${currentUser.pointsBalance} pts"))
+                } else {
+                    accounts.add(Triple("citizen_primary_1", "Aria Sharma (Citizen Profile)", "Green Valley Ward 4 • Standard Citizen"))
                 }
                 accounts.add(Triple("admin_municipal_1", "Officer Marcus Vance (Municipal Admin)", "Municipal Control HQ • Full Control"))
 

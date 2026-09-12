@@ -8,7 +8,6 @@ import com.example.data.model.BinStationEntity
 import com.example.data.model.DisposalLogEntity
 import com.example.data.model.UserEntity
 import com.example.data.model.WalletTransactionEntity
-import com.example.data.remote.FirebaseService
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 
@@ -16,8 +15,7 @@ class EcoRepository(
     private val userDao: UserDao,
     private val disposalDao: DisposalDao,
     private val walletDao: WalletDao,
-    private val binDao: BinDao,
-    private val firebaseService: FirebaseService? = null
+    private val binDao: BinDao
 ) {
 
     val allTimeLeaderboard: Flow<List<UserEntity>> = userDao.getAllUsersByAllTimeWaste()
@@ -75,33 +73,12 @@ class EcoRepository(
             weeklyKgDisposed = 0.0
         )
         userDao.insertUser(newUser)
-        try {
-            firebaseService?.saveUserToFirestore(newUser)
-        } catch (_: Exception) {}
         return newUser
     }
 
     suspend fun saveUser(user: UserEntity) {
         userDao.insertUser(user)
-        try {
-            firebaseService?.saveUserToFirestore(user)
-        } catch (_: Exception) {}
     }
-
-    suspend fun syncUserFromFirestore(userId: String): UserEntity? {
-        val firestoreUser = firebaseService?.getUserFromFirestore(userId)
-        if (firestoreUser != null) {
-            userDao.insertUser(firestoreUser)
-            return firestoreUser
-        }
-        return null
-    }
-
-    fun observeFirestoreUser(userId: String): Flow<UserEntity?>? {
-        return firebaseService?.observeUserFromFirestore(userId)
-    }
-
-    fun getFirebaseService(): FirebaseService? = firebaseService
 
     suspend fun updateUserProfile(
         userId: String,
@@ -120,9 +97,6 @@ class EcoRepository(
             avatarId = avatarId
         )
         userDao.updateUser(updated)
-        try {
-            firebaseService?.saveUserToFirestore(updated)
-        } catch (_: Exception) {}
     }
 
     suspend fun recordDisposalSession(
@@ -165,12 +139,7 @@ class EcoRepository(
         // Add points and waste to user stats
         userDao.addPointsAndWaste(userId, points, weightKg)
 
-        val savedEntity = log.copy(id = id)
-        try {
-            firebaseService?.saveDisposalToFirestore(savedEntity)
-        } catch (_: Exception) {}
-
-        return savedEntity
+        return log.copy(id = id)
     }
 
     suspend fun requestWithdrawal(
@@ -204,15 +173,7 @@ class EcoRepository(
         val txnId = walletDao.insertTransaction(txn)
         userDao.deductPoints(userId, points)
 
-        val finalTxn = txn.copy(id = txnId)
-        try {
-            firebaseService?.saveTransactionToFirestore(finalTxn)
-            userDao.getUserById(userId)?.let { updatedUser ->
-                firebaseService?.saveUserToFirestore(updatedUser)
-            }
-        } catch (_: Exception) {}
-
-        return Result.success(finalTxn)
+        return Result.success(txn.copy(id = txnId))
     }
 
     suspend fun approvePayout(transactionId: Long) {
@@ -241,13 +202,28 @@ class EcoRepository(
         return userDao.getFirstRealUser()
     }
 
-    fun observeAllRealUsersFromFirestore(): Flow<List<UserEntity>>? {
-        return firebaseService?.observeAllRealUsersFromFirestore()
-    }
-
     suspend fun initializeDefaultDataIfEmpty() {
         // Purge any lingering legacy sample profiles from the database
         removeSampleProfiles()
+
+        // Seed default Citizen account if not present
+        val existingCitizen = userDao.getFirstRealUser()
+        if (existingCitizen == null) {
+            val citizenUser = UserEntity(
+                id = "citizen_primary_1",
+                email = "citizen@ecocollect.org",
+                name = "Aria Sharma",
+                role = "user",
+                phone = "+91 98765 43210",
+                upiId = "aria.sharma@upi",
+                avatarId = "avatar_1",
+                ward = "Green Valley Ward 4",
+                pointsBalance = 0,
+                totalKgDisposed = 0.0,
+                weeklyKgDisposed = 0.0
+            )
+            userDao.insertUser(citizenUser)
+        }
 
         // Ensure Municipal Admin account exists for verification dashboard
         val existingAdmin = userDao.getUserById("admin_municipal_1")
