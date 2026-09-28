@@ -58,8 +58,14 @@ export interface BinStation {
 
 export interface WasteScanResult {
   itemName: string;
+  itemType?: string;
+  materialType: string;
   category: 'Biodegradable' | 'Non-Biodegradable';
-  subCategory: string;
+  isBiodegradable: boolean;
+  decompositionTime: string;
+  biodegradableExplanation: string;
+  howItCanBeRecycled: string;
+  spokenSummary?: string;
   binColorName: string;
   binColorHex: string;
   estimatedWeightKg: number;
@@ -69,6 +75,10 @@ export interface WasteScanResult {
   reasoning: string;
   disposalInstructions: string;
   preparationTip: string;
+  disposalSteps?: string[];
+  disposalDos?: string[];
+  disposalDonts?: string[];
+  recyclabilityPercentage?: number;
   googleGroundingSearchQuery?: string;
   searchSources?: Array<{ title: string; uri: string }>;
 }

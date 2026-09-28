@@ -204,16 +204,20 @@ export const EcoFooter: React.FC = () => {
               <div className="flex items-start gap-2">
                 <Phone size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <div className="text-slate-200 font-semibold">Toll-Free Helpline</div>
-                  <div className="text-slate-400">1800-ECO-TRASH</div>
+                  <div className="text-slate-200 font-semibold">Mobile Number</div>
+                  <a href="tel:+919994722259" className="text-slate-400 hover:text-emerald-400 transition-colors">
+                    +91 99947 22259
+                  </a>
                 </div>
               </div>
 
               <div className="flex items-start gap-2">
                 <Mail size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <div className="text-slate-200 font-semibold">Email Desk</div>
-                  <div className="text-slate-400">help@ecocollect.gov.in</div>
+                  <div className="text-slate-200 font-semibold">Email</div>
+                  <a href="mailto:cyberfox8266@gmail.com" className="text-slate-400 hover:text-emerald-400 transition-colors">
+                    cyberfox8266@gmail.com
+                  </a>
                 </div>
               </div>
 
@@ -221,7 +225,7 @@ export const EcoFooter: React.FC = () => {
                 <MapPin size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <div className="text-slate-200 font-semibold">HQ Coordination</div>
-                  <div className="text-slate-400">Civic Centre, Floor 4, Smart City Wing</div>
+                  <div className="text-slate-400">kumbakonam , tamilnadu</div>
                 </div>
               </div>
             </div>
@@ -231,7 +235,7 @@ export const EcoFooter: React.FC = () => {
         {/* Bottom copyright */}
         <div className="mt-12 pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div>
-            © {new Date().getFullYear()} EcoCollect Municipal Corporation. Built for Swachh Urban Mission.
+            © {new Date().getFullYear()} EcoCollect Municipal Corporation. Built for Swachh Urban Mission. • Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR
           </div>
           <div className="flex items-center gap-6">
             <button

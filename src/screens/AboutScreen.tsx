@@ -239,6 +239,11 @@ export const AboutScreen: React.FC = () => {
             household.
           </p>
 
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 text-emerald-300 text-xs font-semibold border border-white/10 backdrop-blur-xs">
+            <Sparkles size={14} className="text-emerald-400" />
+            <span>Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR</span>
+          </div>
+
           <div className="pt-2 flex flex-wrap gap-4">
             <button
               onClick={() => setCurrentRoute('scanner')}
@@ -584,8 +589,10 @@ export const AboutScreen: React.FC = () => {
                   <Phone size={16} />
                 </div>
                 <div>
-                  <div className="font-bold text-xs text-slate-900">Toll-Free Helpline</div>
-                  <div className="text-xs text-slate-500">1800-ECO-TRASH (Mon-Sat 7am - 9pm)</div>
+                  <div className="font-bold text-xs text-slate-900">Mobile Support</div>
+                  <a href="tel:+919994722259" className="text-xs text-slate-500 hover:text-emerald-600 transition-colors">
+                    +91 99947 22259
+                  </a>
                 </div>
               </div>
 
@@ -595,7 +602,9 @@ export const AboutScreen: React.FC = () => {
                 </div>
                 <div>
                   <div className="font-bold text-xs text-slate-900">Email Correspondence</div>
-                  <div className="text-xs text-slate-500">support@ecocollect.gov.in</div>
+                  <a href="mailto:cyberfox8266@gmail.com" className="text-xs text-slate-500 hover:text-emerald-600 transition-colors">
+                    cyberfox8266@gmail.com
+                  </a>
                 </div>
               </div>
 
@@ -604,8 +613,8 @@ export const AboutScreen: React.FC = () => {
                   <Building2 size={16} />
                 </div>
                 <div>
-                  <div className="font-bold text-xs text-slate-900">Central Municipal Operations</div>
-                  <div className="text-xs text-slate-500">Civic Centre, Smart City Mission Floor 4</div>
+                  <div className="font-bold text-xs text-slate-900">HQ Coordination</div>
+                  <div className="text-xs text-slate-500">kumbakonam , tamilnadu</div>
                 </div>
               </div>
             </div>
@@ -702,6 +711,39 @@ export const AboutScreen: React.FC = () => {
             )}
           </div>
         </div>
+      </section>
+
+      {/* 7. PROJECT CREDITS & DESIGN ATTRIBUTION */}
+      <section className="bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-8 sm:p-10 border border-slate-700/60 shadow-xl text-center text-white relative overflow-hidden">
+        <div className="relative z-10 max-w-xl mx-auto space-y-4">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+            <Award size={14} />
+            <span>Platform Design & Engineering</span>
+          </div>
+
+          <h3 className="text-2xl sm:text-3xl font-extrabold font-heading text-white tracking-tight">
+            Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR
+          </h3>
+
+          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            Crafted for sustainable smart urban waste management, empowering citizens with AI computer vision segregation and direct civic incentives.
+          </p>
+
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-emerald-300 shadow-xs">
+              NITHIN VARSHAN TK
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-emerald-300 shadow-xs">
+              HARISH
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-emerald-300 shadow-xs">
+              SARVESHWAR
+            </div>
+          </div>
+        </div>
+
+        {/* Subtle background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
       </section>
     </div>
   );
