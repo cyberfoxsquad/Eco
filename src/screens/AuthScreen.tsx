@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
 import { EcoAvatar } from '../components/CommonComponents';
+import { EcoCollectLogo } from '../components/EcoCollectLogo';
 
 export const AuthScreen: React.FC = () => {
   const { login, signup, setCurrentRoute, currentUser } = useEco();
@@ -155,8 +156,8 @@ export const AuthScreen: React.FC = () => {
       <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden w-full">
         {/* Top Municipal Branding Header */}
         <div className="bg-slate-900 text-white p-6 text-center relative">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-600 text-white shadow-lg mb-3">
-            <Leaf size={24} />
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 border border-white/15 p-2 shadow-lg mb-3">
+            <EcoCollectLogo className="w-full h-full" />
           </div>
           <h2 className="text-xl sm:text-2xl font-black tracking-tight font-heading">
             EcoCollect Portal

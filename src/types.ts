@@ -79,8 +79,39 @@ export interface WasteScanResult {
   disposalDos?: string[];
   disposalDonts?: string[];
   recyclabilityPercentage?: number;
+  purityScore?: number;
   googleGroundingSearchQuery?: string;
   searchSources?: Array<{ title: string; uri: string }>;
 }
 
-export type ScreenRoute = 'home' | 'scanner' | 'disposal' | 'wallet' | 'leaderboard' | 'about' | 'admin' | 'profile' | 'auth' | 'forbidden';
+export interface ChatScoreBreakdown {
+  recyclabilityScore: number;
+  ecoPointsScore: number;
+  cashEquivalentInr: number;
+  purityScore: number;
+  carbonReductionKg: number;
+  confidenceScore: number;
+}
+
+export type GeminiModelType = 'gemini-2.5-flash' | 'gemini-2.5-flash-lite' | 'gemini-2.5-pro';
+
+export type ChatbotRole =
+  | 'civic_waste_expert'
+  | 'zero_waste_coach'
+  | 'compost_specialist'
+  | 'circularity_auditor';
+
+export interface ChatMessage {
+  id: string;
+  sender: 'user' | 'bot';
+  text: string;
+  timestamp: number;
+  modelUsed?: string;
+  roleUsed?: ChatbotRole;
+  imageUri?: string;
+  scanResult?: WasteScanResult;
+  suggestedPrompts?: string[];
+  isScanning?: boolean;
+}
+
+export type ScreenRoute = 'home' | 'scanner' | 'assistant' | 'disposal' | 'wallet' | 'leaderboard' | 'about' | 'admin' | 'profile' | 'auth' | 'forbidden';

@@ -13,6 +13,7 @@ import {
   Recycle,
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
+import { EcoCollectLogo } from './EcoCollectLogo';
 import { ScreenRoute } from '../types';
 
 export const EcoFooter: React.FC = () => {
@@ -54,8 +55,8 @@ export const EcoFooter: React.FC = () => {
               className="flex items-center gap-3 cursor-pointer group w-fit"
               onClick={() => handleNav('home')}
             >
-              <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-md group-hover:bg-emerald-500 transition-colors">
-                <Leaf size={22} />
+              <div className="w-11 h-11 rounded-2xl bg-slate-800/90 border border-slate-700 p-1.5 flex items-center justify-center shadow-md group-hover:border-emerald-500 group-hover:scale-105 transition-all">
+                <EcoCollectLogo className="w-full h-full" />
               </div>
               <div>
                 <span className="font-extrabold text-white tracking-tight font-heading text-xl">

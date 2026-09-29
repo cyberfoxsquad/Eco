@@ -19,7 +19,11 @@ import {
   Volume2,
   VolumeX,
   Radio,
-  FileText,
+  Grid,
+  Eye,
+  Maximize2,
+  Crosshair,
+  AlertCircle,
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
 import { WasteScanResult } from '../types';
@@ -27,14 +31,23 @@ import { WasteScanResult } from '../types';
 export const ScannerScreen: React.FC = () => {
   const { setDraftDetails, setCurrentRoute } = useEco();
 
+  // Camera and Stream State
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [showGrid, setShowGrid] = useState(true);
+  const [streamResolution, setStreamResolution] = useState<{ width: number; height: number } | null>(null);
+  const [shutterFlash, setShutterFlash] = useState(false);
+
+  // Capture and Scan State
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedTimestamp, setCapturedTimestamp] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<WasteScanResult | null>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isEnlargedPreviewOpen, setIsEnlargedPreviewOpen] = useState(false);
 
   // Audio / Speech State
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -45,22 +58,49 @@ export const ScannerScreen: React.FC = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Start Camera Feed
   const startCamera = async (mode = facingMode) => {
     try {
       setCameraError(null);
       stopCamera();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
+
+      // Attempt to access user media with environment preference
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: mode,
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+          },
+        });
+      } catch {
+        // Fallback to basic video constraint
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
       mediaStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+
+        const videoTrack = stream.getVideoTracks()[0];
+        const settings = videoTrack?.getSettings?.();
+        if (settings && settings.width && settings.height) {
+          setStreamResolution({ width: settings.width, height: settings.height });
+        } else if (videoRef.current.videoWidth) {
+          setStreamResolution({
+            width: videoRef.current.videoWidth,
+            height: videoRef.current.videoHeight,
+          });
+        }
       }
       setIsCameraActive(true);
     } catch (err: any) {
       console.warn('Camera stream error:', err);
-      setCameraError('Camera access unavailable or permission declined. You can upload an image or type any item below.');
+      setCameraError(
+        'Camera access unavailable or permission not yet granted. You can launch camera manually, upload a photo, or drag and drop an image.'
+      );
       setIsCameraActive(false);
     }
   };
@@ -96,7 +136,7 @@ export const ScannerScreen: React.FC = () => {
       result.spokenSummary ||
       `This item is a ${result.itemName}. It is ${
         result.isBiodegradable ? 'biodegradable' : 'non-biodegradable'
-      }, made of ${result.materialType}. How to recycle: ${result.howItCanBeRecycled}`;
+      }, composed of ${result.materialType}. How to recycle: ${result.howItCanBeRecycled}`;
 
     const utterance = new SpeechSynthesisUtterance(speechText);
     utterance.rate = 0.95;
@@ -108,25 +148,41 @@ export const ScannerScreen: React.FC = () => {
   };
 
   useEffect(() => {
+    // Automatically attempt camera launch on initial load
+    startCamera();
+
     return () => {
       stopCamera();
       stopSpeaking();
     };
   }, []);
 
+  // Take high resolution snapshot from video
   const takeSnapshot = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
 
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      // Draw exact frame
+      ctx.drawImage(video, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+      // Trigger shutter flash visual feedback
+      setShutterFlash(true);
+      setTimeout(() => setShutterFlash(false), 220);
+
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setCapturedImage(dataUrl);
+      setCapturedTimestamp(timestamp);
       stopCamera();
+
       classifyItem({ imageBase64: dataUrl });
     }
   };
@@ -138,7 +194,10 @@ export const ScannerScreen: React.FC = () => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setCapturedImage(dataUrl);
+      setCapturedTimestamp(timestamp);
+      stopCamera();
       classifyItem({ imageBase64: dataUrl, hint: file.name.replace(/\.[^/.]+$/, '') });
     };
     reader.readAsDataURL(file);
@@ -152,16 +211,21 @@ export const ScannerScreen: React.FC = () => {
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setCapturedImage(dataUrl);
+        setCapturedTimestamp(timestamp);
+        stopCamera();
         classifyItem({ imageBase64: dataUrl, hint: file.name.replace(/\.[^/.]+$/, '') });
       };
       reader.readAsDataURL(file);
     }
   };
 
+  // Perform Gemini AI Material Classification
   const classifyItem = async (params: { imageBase64?: string; hint?: string }) => {
     setIsScanning(true);
     setScanResult(null);
+    setModelUsed(null);
     stopSpeaking();
 
     try {
@@ -177,6 +241,9 @@ export const ScannerScreen: React.FC = () => {
       const data = await res.json();
       if (data && data.result) {
         setScanResult(data.result);
+        if (data.modelUsed) {
+          setModelUsed(data.modelUsed);
+        }
         if (autoSpeak) {
           speakResult(data.result);
         }
@@ -195,22 +262,14 @@ export const ScannerScreen: React.FC = () => {
     classifyItem({ hint: searchQuery.trim() });
   };
 
-  const runPresetClassification = (label: string, sampleImage: string) => {
-    stopCamera();
-    setCapturedImage(sampleImage);
-    classifyItem({ imageBase64: sampleImage, hint: label });
-  };
-
   const handleProceedToDisposal = () => {
     if (!scanResult) return;
     const targetSub = scanResult.isBiodegradable
       ? 'Wet Organic Compost'
-      : (scanResult.materialType?.includes('Cardboard') ? 'Corrugated Cardboard' : 'PET Plastic (#1)');
-    setDraftDetails(
-      scanResult.category,
-      targetSub,
-      scanResult.estimatedWeightKg.toString()
-    );
+      : scanResult.materialType?.includes('Cardboard')
+      ? 'Corrugated Cardboard'
+      : 'PET Plastic (#1)';
+    setDraftDetails(scanResult.category, targetSub, scanResult.estimatedWeightKg.toString());
     setCurrentRoute('disposal');
   };
 
@@ -218,65 +277,15 @@ export const ScannerScreen: React.FC = () => {
     stopSpeaking();
     setScanResult(null);
     setCapturedImage(null);
+    setCapturedTimestamp(null);
     setCameraError(null);
     setSearchQuery('');
     startCamera();
   };
 
-  const PRESETS = [
-    {
-      label: 'Banana Peel / Fruit Scraps',
-      type: 'Organic Wet Waste',
-      icon: '🍌',
-      material: 'Plant Cellulose & Pectin',
-      badge: 'Biodegradable',
-      image: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&auto=format&fit=crop&q=80',
-    },
-    {
-      label: 'Plastic Water Bottle',
-      type: 'Rigid Beverage Container',
-      icon: '🧴',
-      material: 'PET #1 Thermoplastic',
-      badge: 'Non-Biodegradable',
-      image: 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&auto=format&fit=crop&q=80',
-    },
-    {
-      label: 'Lithium Battery Cell',
-      type: 'Hazardous Consumer E-Waste',
-      icon: '🔋',
-      material: 'Lithium Cobalt Oxide & Steel',
-      badge: 'Hazardous E-Waste',
-      image: 'https://images.unsplash.com/photo-1619725002198-6a689b72f41d?w=600&auto=format&fit=crop&q=80',
-    },
-    {
-      label: 'Corrugated Shipping Box',
-      type: 'Packaging Paperboard',
-      icon: '📦',
-      material: 'Kraft Corrugated Pulp',
-      badge: 'Dry Recyclable',
-      image: 'https://images.unsplash.com/photo-1607344645866-009c320c5ab8?w=600&auto=format&fit=crop&q=80',
-    },
-    {
-      label: 'Aluminum Soda Can',
-      type: 'Metal Beverage Can',
-      icon: '🥫',
-      material: 'Aluminum Alloy 3104',
-      badge: 'Infinitely Recyclable',
-      image: 'https://images.unsplash.com/photo-1577705998148-6da4f3963bc8?w=600&auto=format&fit=crop&q=80',
-    },
-    {
-      label: 'Styrofoam Takeout Box',
-      type: 'Cellular Foam Packaging',
-      icon: '🥡',
-      material: 'Expanded Polystyrene EPS',
-      badge: 'Non-Biodegradable Foam',
-      image: 'https://images.unsplash.com/photo-1595278069441-2cf29f8005a4?w=600&auto=format&fit=crop&q=80',
-    },
-  ];
-
   return (
     <div className="space-y-6 pb-24 max-w-2xl mx-auto">
-      {/* Header */}
+      {/* HEADER */}
       <div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -307,131 +316,274 @@ export const ScannerScreen: React.FC = () => {
           Smart Waste Material Scanner
         </h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Identifies the <strong>type of item</strong>, whether it is <strong>biodegradable or non-biodegradable</strong>, its exact <strong>physical material composition</strong>, and <strong>how it can be recycled</strong>.
+          Point your camera at any waste item or upload a picture. The AI scans and shows what it captures, classifies <strong>material composition</strong>, determines <strong>biodegradability</strong>, and provides <strong>exact recycling instructions</strong>.
         </p>
       </div>
 
-      {/* Hidden canvas for snapshotting */}
+      {/* Hidden canvas for capturing frames */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* CAMERA / IMAGE VIEWFINDER */}
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDraggingOver(true);
-        }}
-        onDragLeave={() => setIsDraggingOver(false)}
-        onDrop={handleDrop}
-        className={`relative rounded-3xl overflow-hidden bg-slate-950 aspect-4/3 flex items-center justify-center border shadow-xl transition-all ${
-          isDraggingOver ? 'border-emerald-400 ring-4 ring-emerald-500/20' : 'border-slate-800'
-        }`}
-      >
-        {isCameraActive ? (
-          <>
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-            {/* Target Reticle & Scan Laser Animation */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="relative w-56 h-56 border-2 border-dashed border-emerald-400/80 rounded-2xl flex items-center justify-center overflow-hidden">
-                {/* Horizontal laser scan beam */}
-                <div className="absolute left-0 right-0 h-0.5 bg-linear-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399] animate-[bounce_2s_infinite]" />
-                <div className="text-center bg-black/60 backdrop-blur-xs px-3 py-1.5 rounded-xl border border-emerald-500/30">
-                  <p className="text-[11px] text-emerald-300 font-semibold">Center waste material here</p>
+      {/* VIEWFINDER & CAPTURE DISPLAY */}
+      <div className="space-y-2">
+        {/* Viewfinder Status Subheader */}
+        <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-500">
+          <div className="flex items-center gap-2">
+            {isCameraActive ? (
+              <span className="inline-flex items-center gap-1.5 text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Live Camera Feed Active
+              </span>
+            ) : capturedImage ? (
+              <span className="inline-flex items-center gap-1.5 text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                <Eye size={12} />
+                Showing Captured Frame {capturedTimestamp ? `(${capturedTimestamp})` : ''}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-slate-400">
+                <Radio size={12} />
+                Camera Inactive
+              </span>
+            )}
+          </div>
+
+          {isCameraActive && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowGrid(!showGrid)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold transition-colors ${
+                  showGrid ? 'bg-slate-800 text-white border-slate-700' : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}
+                title="Toggle framing grid"
+              >
+                <Grid size={11} />
+                <span>Grid</span>
+              </button>
+              {streamResolution && (
+                <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                  {streamResolution.width}×{streamResolution.height}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* MAIN CAMERA / CAPTURE CONTAINER */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDraggingOver(true);
+          }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={handleDrop}
+          className={`relative rounded-3xl overflow-hidden bg-slate-950 aspect-4/3 flex items-center justify-center border shadow-xl transition-all select-none ${
+            isDraggingOver ? 'border-emerald-400 ring-4 ring-emerald-500/20' : 'border-slate-800'
+          }`}
+        >
+          {/* Shutter Flash Animation */}
+          {shutterFlash && (
+            <div className="absolute inset-0 bg-white z-50 pointer-events-none animate-out fade-out duration-200" />
+          )}
+
+          {isCameraActive ? (
+            <>
+              {/* Live Video Stream */}
+              <video
+                ref={videoRef}
+                playsInline
+                autoPlay
+                muted
+                className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
+              />
+
+              {/* Rule of Thirds Grid Overlay */}
+              {showGrid && (
+                <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3 z-10 opacity-30">
+                  <div className="border-r border-b border-white/40" />
+                  <div className="border-r border-b border-white/40" />
+                  <div className="border-b border-white/40" />
+                  <div className="border-r border-b border-white/40" />
+                  <div className="border-r border-b border-white/40" />
+                  <div className="border-b border-white/40" />
+                  <div className="border-r border-white/40" />
+                  <div className="border-r border-white/40" />
+                  <div />
+                </div>
+              )}
+
+              {/* TARGETING RETICLE & LIVE CAPTURE SCOPE */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
+                  {/* Outer Targeting Corners */}
+                  <div className="absolute top-0 left-0 w-8 h-8 border-t-3 border-l-3 border-emerald-400 rounded-tl-xl" />
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-3 border-r-3 border-emerald-400 rounded-tr-xl" />
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-3 border-l-3 border-emerald-400 rounded-bl-xl" />
+                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-3 border-r-3 border-emerald-400 rounded-br-xl" />
+
+                  {/* Pulsing Crosshair Center */}
+                  <div className="text-emerald-400/60 animate-pulse">
+                    <Crosshair size={32} />
+                  </div>
+
+                  {/* Laser Scan Beam */}
+                  <div className="absolute left-4 right-4 h-0.5 bg-linear-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_14px_#34d399] animate-[bounce_2.5s_infinite]" />
+
+                  {/* Viewfinder Target Label */}
+                  <div className="absolute bottom-3 text-center bg-black/70 backdrop-blur-md px-3 py-1 rounded-full border border-emerald-500/40">
+                    <p className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                      Capturing Item in Target Scope
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Camera Controls Bar */}
-            <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-              <button
-                onClick={toggleFacingMode}
-                className="p-2.5 rounded-full bg-black/50 hover:bg-black/75 backdrop-blur-md text-white border border-white/20 text-xs flex items-center justify-center transition-all"
-                title="Switch Camera"
-              >
-                <SwitchCamera size={16} />
-              </button>
-            </div>
-
-            {/* Shutter Button */}
-            <div className="absolute bottom-5 left-0 right-0 flex items-center justify-center gap-4 z-20">
-              <button
-                id="scanner_shutter_button"
-                onClick={takeSnapshot}
-                className="w-16 h-16 rounded-full bg-white text-emerald-700 flex items-center justify-center p-1.5 shadow-2xl hover:scale-105 active:scale-95 transition-transform"
-                title="Capture & Classify"
-              >
-                <div className="w-full h-full rounded-full border-2 border-emerald-600 flex items-center justify-center bg-emerald-50">
-                  <Camera size={24} />
+              {/* Top Controls Bar */}
+              <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
+                <div className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/10 text-[11px] font-semibold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <span>LIVE CAPTURE MONITOR</span>
                 </div>
-              </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleFacingMode}
+                    className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/20 text-xs flex items-center justify-center transition-all shadow-md active:scale-90"
+                    title={`Switch Camera (Currently: ${facingMode === 'environment' ? 'Rear' : 'Front'})`}
+                  >
+                    <SwitchCamera size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Shutter Button & Capture Bar */}
+              <div className="absolute bottom-5 left-0 right-0 flex flex-col items-center justify-center gap-2 z-20">
+                <button
+                  id="scanner_shutter_button"
+                  onClick={takeSnapshot}
+                  className="w-18 h-18 rounded-full bg-white text-emerald-700 flex items-center justify-center p-1.5 shadow-2xl hover:scale-105 active:scale-95 transition-all ring-4 ring-emerald-500/30 group"
+                  title="Capture & Scan Target"
+                >
+                  <div className="w-full h-full rounded-full border-2 border-emerald-600 flex items-center justify-center bg-emerald-50 group-hover:bg-emerald-100 transition-colors">
+                    <Camera size={26} className="text-emerald-700" />
+                  </div>
+                </button>
+                <span className="text-[11px] font-bold text-white bg-black/60 px-3 py-0.5 rounded-full backdrop-blur-xs border border-white/10 shadow-xs">
+                  Tap to Capture What's in Frame
+                </span>
+              </div>
+            </>
+          ) : capturedImage ? (
+            /* WHAT WAS CAPTURED DISPLAY */
+            <div className="relative w-full h-full">
+              <img
+                src={capturedImage}
+                alt="Captured Waste Item"
+                className="w-full h-full object-cover"
+              />
+
+              {/* Framing Reticle on Captured Image */}
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="w-56 h-56 border border-emerald-400/40 rounded-2xl relative">
+                  <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
+                  <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
+                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
+                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
+                </div>
+              </div>
+
+              {/* Captured Frame Tag */}
+              <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+                <div className="px-3 py-1.5 rounded-xl bg-black/75 backdrop-blur-md text-white border border-emerald-500/30 text-[11px] font-bold flex items-center gap-2 shadow-lg">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span>Captured Frame</span>
+                  {capturedTimestamp && <span className="text-emerald-300 font-mono">@{capturedTimestamp}</span>}
+                </div>
+              </div>
+
+              {/* Top Right Quick Actions on Captured Image */}
+              <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+                <button
+                  onClick={() => setIsEnlargedPreviewOpen(true)}
+                  className="p-2 rounded-xl bg-black/75 hover:bg-black/90 backdrop-blur-md text-white border border-white/20 text-xs transition-all shadow-md"
+                  title="Enlarge captured frame"
+                >
+                  <Maximize2 size={15} />
+                </button>
+                <button
+                  onClick={resetScanner}
+                  className="px-3 py-1.5 rounded-xl bg-black/75 hover:bg-black/90 backdrop-blur-md text-white border border-white/20 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                  title="Retake photo with camera"
+                >
+                  <RefreshCw size={13} />
+                  <span>Retake</span>
+                </button>
+              </div>
+
+              {/* Scanning Active Overlay */}
+              {isScanning && (
+                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-30 animate-in fade-in duration-150">
+                  <div className="relative mb-4">
+                    <div className="w-14 h-14 rounded-full border-3 border-emerald-400 border-t-transparent animate-spin" />
+                    <Sparkles size={20} className="text-emerald-400 absolute inset-0 m-auto" />
+                  </div>
+                  <h3 className="text-base font-bold font-heading">Analyzing Captured Frame...</h3>
+                  <p className="text-xs text-slate-300 mt-1 max-w-xs">
+                    Gemini Vision is inspecting pixel structures, material compositions, and recycling routes.
+                  </p>
+                  <div className="mt-3 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
+                    Detecting: Polymers • Biomass • Metals • Recyclability
+                  </div>
+                </div>
+              )}
             </div>
-          </>
-        ) : capturedImage ? (
-          <div className="relative w-full h-full">
-            <img
-              src={capturedImage}
-              alt="Captured Waste"
-              className="w-full h-full object-cover"
-            />
-            {isScanning && (
-              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center">
-                <div className="w-12 h-12 rounded-full border-3 border-emerald-400 border-t-transparent animate-spin mb-4" />
-                <h3 className="text-base font-bold font-heading">Analyzing Material with AI...</h3>
-                <p className="text-xs text-slate-300 mt-1 max-w-xs">
-                  Classifying item type, biodegradability rate, molecular material, and recycling pathway
+          ) : (
+            /* CAMERA INACTIVE / LAUNCH PROMPT */
+            <div className="p-6 text-center text-white space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto shadow-inner">
+                <Camera size={32} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold font-heading">AI Camera Scanner Ready</h3>
+                <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
+                  Launch the live camera to capture any item or drag and drop a photo to analyze.
                 </p>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="p-6 text-center text-white space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto">
-              <Camera size={32} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold font-heading">Scan Any Waste or Material</h3>
-              <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
-                Snap with your camera, upload a photo, or choose an instant sample item below to analyze.
-              </p>
-            </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
-              <button
-                id="scanner_start_camera_btn"
-                onClick={() => startCamera()}
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg transition-all"
-              >
-                <Camera size={16} />
-                <span>Launch Camera</span>
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                <button
+                  id="scanner_start_camera_btn"
+                  onClick={() => startCamera()}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                >
+                  <Camera size={16} />
+                  <span>Launch Live Camera</span>
+                </button>
 
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"
-              >
-                <Upload size={16} />
-                <span>Upload Photo</span>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-            </div>
-
-            {cameraError && (
-              <div className="text-[11px] text-amber-300 bg-amber-950/40 p-2.5 rounded-xl border border-amber-800/50 max-w-md mx-auto">
-                {cameraError}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95"
+                >
+                  <Upload size={16} />
+                  <span>Upload Photo</span>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
               </div>
-            )}
-          </div>
-        )}
+
+              {cameraError && (
+                <div className="text-[11px] text-amber-200 bg-amber-950/60 p-3 rounded-xl border border-amber-800/60 max-w-md mx-auto flex items-start gap-2 text-left">
+                  <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
+                  <span>{cameraError}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* QUICK MATERIAL SEARCH LOOKUP */}
@@ -443,7 +595,7 @@ export const ScannerScreen: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Or type any item: e.g. Banana peel, PET water bottle, Pizza box, AA battery..."
+              placeholder="Or type any item name (e.g. Plastic bottle, Banana peel, Battery, Cardboard)..."
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 border border-slate-200 focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-slate-900"
             />
           </div>
@@ -458,54 +610,57 @@ export const ScannerScreen: React.FC = () => {
         </div>
       </form>
 
-      {/* QUICK PRESET SAMPLES */}
-      {!scanResult && (
-        <div className="bg-white p-5 rounded-3xl border border-slate-200 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Sparkles size={14} className="text-emerald-600" />
-              <span className="text-xs font-bold text-slate-900">1-Click Material Test Samples:</span>
-            </div>
-            <span className="text-[11px] font-semibold text-slate-400">Click to scan instantly</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                id={`preset_btn_${p.label.toLowerCase().replace(/[^a-z0-9]/g, '_')}`}
-                onClick={() => runPresetClassification(p.label, p.image)}
-                className="flex flex-col p-3 rounded-2xl border border-slate-100 bg-slate-50/80 hover:border-emerald-500 hover:bg-emerald-50/40 transition-all text-left group"
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-2xl">{p.icon}</span>
-                  <span
-                    className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                      p.badge === 'Biodegradable'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : p.badge.includes('Hazardous')
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-blue-100 text-blue-800'
-                    }`}
-                  >
-                    {p.badge}
-                  </span>
-                </div>
-                <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-800 transition-colors line-clamp-1">
-                  {p.label}
-                </span>
-                <span className="text-[10px] text-slate-500 truncate mt-0.5">
-                  {p.material}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* SCAN RESULTS DISPLAY */}
       {scanResult && (
         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xl space-y-6 animate-in fade-in zoom-in-95">
+          {/* 0. WHAT WAS CAPTURED CARD: Transparent Visual Confirmation */}
+          {capturedImage && (
+            <div className="bg-slate-900 text-white rounded-2xl p-4 border border-slate-800 flex flex-col sm:flex-row items-center gap-4">
+              <div
+                onClick={() => setIsEnlargedPreviewOpen(true)}
+                className="relative w-28 h-24 sm:w-32 sm:h-24 rounded-xl overflow-hidden border border-emerald-500/40 shrink-0 cursor-pointer group shadow-md"
+                title="Click to enlarge captured photo"
+              >
+                <img
+                  src={capturedImage}
+                  alt="Captured waste frame"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                />
+                <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-colors">
+                  <Maximize2 size={16} className="text-white drop-shadow-md" />
+                </div>
+                <span className="absolute bottom-1 right-1 text-[9px] bg-black/80 px-1.5 py-0.5 rounded-sm font-mono text-emerald-300">
+                  CAPTURED
+                </span>
+              </div>
+
+              <div className="flex-1 w-full space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 size={12} />
+                    Item Captured By Scanner
+                  </span>
+                  {capturedTimestamp && (
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Timestamp: {capturedTimestamp}
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-sm font-black text-white font-heading">
+                  {scanResult.itemName}
+                </h3>
+                <p className="text-xs text-slate-300 leading-snug">
+                  Identified as <strong>{scanResult.materialType}</strong>. The scanner successfully captured and classified this item with Gemini Vision.
+                </p>
+                {modelUsed && (
+                  <span className="inline-block mt-1 text-[10px] text-emerald-300/80 font-mono">
+                    Model: {modelUsed}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* AUDIO SPOKEN VERDICT PLAYER */}
           <div className="bg-linear-to-r from-emerald-900 to-slate-900 rounded-2xl p-4 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
             <div className="flex items-center gap-3">
@@ -817,6 +972,47 @@ export const ScannerScreen: React.FC = () => {
               <RefreshCw size={14} />
               <span>Scan Next Item</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ENLARGED CAPTURE PREVIEW MODAL */}
+      {isEnlargedPreviewOpen && capturedImage && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative max-w-2xl w-full bg-slate-900 rounded-3xl overflow-hidden border border-slate-700 shadow-2xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2">
+                <Camera size={16} className="text-emerald-400" />
+                <span className="text-xs font-bold font-heading">
+                  High-Resolution Captured Frame Inspection
+                </span>
+                {capturedTimestamp && (
+                  <span className="text-[10px] text-slate-400 font-mono">({capturedTimestamp})</span>
+                )}
+              </div>
+              <button
+                onClick={() => setIsEnlargedPreviewOpen(false)}
+                className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-3 bg-black flex items-center justify-center max-h-[70vh]">
+              <img
+                src={capturedImage}
+                alt="Enlarged captured frame"
+                className="max-h-[65vh] object-contain rounded-xl"
+              />
+            </div>
+            <div className="p-4 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between text-xs text-slate-300">
+              <span>This image was captured and analyzed by the EcoCollect Gemini AI vision model.</span>
+              <button
+                onClick={() => setIsEnlargedPreviewOpen(false)}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

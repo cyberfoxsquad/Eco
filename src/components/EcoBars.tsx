@@ -15,9 +15,12 @@ import {
   LogIn,
   UserPlus,
   LogOut,
+  MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
 import { EcoAvatar, RoleBadge, AccountSwitcherModal } from './CommonComponents';
+import { EcoCollectLogo } from './EcoCollectLogo';
 import { ScreenRoute } from '../types';
 
 export const EcoTopBar: React.FC = () => {
@@ -27,6 +30,7 @@ export const EcoTopBar: React.FC = () => {
 
   const navLinks: Array<{ route: ScreenRoute; label: string; icon: LucideIcon; badge?: string }> = [
     { route: 'home', label: 'Home', icon: Home },
+    { route: 'assistant', label: 'AI Assistant', icon: MessageSquare, badge: 'Bot' },
     { route: 'scanner', label: 'AI Scanner', icon: Camera, badge: 'AI' },
     { route: 'disposal', label: 'Smart Bins', icon: Recycle },
     { route: 'wallet', label: 'Rewards & UPI', icon: Wallet },
@@ -56,8 +60,8 @@ export const EcoTopBar: React.FC = () => {
               className="flex items-center gap-3 cursor-pointer group"
               onClick={() => navigateTo('home')}
             >
-              <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-sm group-hover:bg-emerald-700 transition-colors">
-                <Leaf size={22} />
+              <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-200/90 p-1.5 flex items-center justify-center shadow-xs group-hover:bg-emerald-100 group-hover:scale-105 transition-all">
+                <EcoCollectLogo className="w-full h-full" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -131,6 +135,16 @@ export const EcoTopBar: React.FC = () => {
                     </div>
                   </button>
                 )}
+
+                {/* Quick Action CTA: AI Assistant */}
+                <button
+                  onClick={() => navigateTo('assistant')}
+                  className="hidden xl:flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors"
+                  title="Open AI Doubt Clearing Waste Assistant"
+                >
+                  <MessageSquare size={14} className="text-emerald-600" />
+                  <span>AI Assistant</span>
+                </button>
 
                 {/* Quick Action CTA: AI Scan */}
                 <button
@@ -274,10 +288,10 @@ export const EcoBottomBar: React.FC = () => {
   // Mobile-only bottom bar for convenient one-thumb mobile navigation
   const navItems: Array<{ route: ScreenRoute; label: string; icon: LucideIcon }> = [
     { route: 'home', label: 'Home', icon: Home },
+    { route: 'assistant', label: 'AI Bot', icon: MessageSquare },
     { route: 'scanner', label: 'AI Scan', icon: Camera },
     { route: 'disposal', label: 'Dispose', icon: Recycle },
     { route: 'wallet', label: 'Rewards', icon: Wallet },
-    { route: 'leaderboard', label: 'Rankings', icon: Trophy },
     { route: currentUser ? 'profile' : 'auth', label: currentUser ? 'Account' : 'Sign In', icon: currentUser?.role === 'admin' ? ShieldCheck : Info },
   ];
 

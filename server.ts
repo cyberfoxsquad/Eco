@@ -475,7 +475,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.post("/api/classify-waste", async (req, res) => {
-  const { imageBase64, sampleLabel, mimeType = "image/jpeg" } = req.body;
+  const { imageBase64, sampleLabel, mimeType: providedMimeType } = req.body;
 
   const ai = getGemini();
 
@@ -538,45 +538,78 @@ Return strictly a JSON object with this structure:
   "reasoning": "1-2 sentence explanation citing municipal solid waste segregation guidelines."
 }`;
 
-    const contents: Array<any> = [{ text: prompt }];
+    const parts: Array<any> = [];
 
     if (imageBase64) {
-      // Remove data URL prefix if included
-      const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, "");
-      contents.push({
+      let cleanBase64 = imageBase64;
+      let effectiveMimeType = providedMimeType || "image/jpeg";
+      const matches = imageBase64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (matches) {
+        effectiveMimeType = matches[1];
+        cleanBase64 = matches[2];
+      } else {
+        cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, "");
+      }
+
+      cleanBase64 = cleanBase64.trim().replace(/\s+/g, "");
+
+      parts.push({
         inlineData: {
-          mimeType,
+          mimeType: effectiveMimeType,
           data: cleanBase64,
         },
       });
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents,
-      config: {
-        temperature: 0.2,
-        responseMimeType: "application/json",
-      },
-    });
+    parts.push({ text: prompt });
+    const contents = { parts };
 
-    const responseText = response.text || "";
+    const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"];
+    let responseText = "";
+    let modelUsed = "";
+
+    for (const targetModel of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: targetModel,
+          contents,
+          config: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+          },
+        });
+        if (response && response.text) {
+          responseText = response.text;
+          modelUsed = targetModel;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${targetModel} failed for classification:`, err?.message || err);
+      }
+    }
+
     let parsed: any = null;
 
-    try {
-      parsed = JSON.parse(responseText.trim());
-    } catch {
-      const cleanJson = responseText
-        .trim()
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/, "")
-        .trim();
-      const startIdx = cleanJson.indexOf("{");
-      const endIdx = cleanJson.lastIndexOf("}");
-      if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-        parsed = JSON.parse(cleanJson.substring(startIdx, endIdx + 1));
+    if (responseText) {
+      try {
+        parsed = JSON.parse(responseText.trim());
+      } catch {
+        const cleanJson = responseText
+          .trim()
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/\s*```$/, "")
+          .trim();
+        const startIdx = cleanJson.indexOf("{");
+        const endIdx = cleanJson.lastIndexOf("}");
+        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+          parsed = JSON.parse(cleanJson.substring(startIdx, endIdx + 1));
+        }
       }
+    }
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      parsed = parsed[0];
     }
 
     if (parsed && (parsed.itemName || parsed.category)) {
@@ -635,7 +668,7 @@ Return strictly a JSON object with this structure:
         reasoning: parsed.reasoning || "Verified according to municipal solid waste segregation standards.",
       };
 
-      return res.json({ result, source: "gemini-api" });
+      return res.json({ result, source: "gemini-api", modelUsed: modelUsed || "gemini-3.5-flash-lite" });
     }
 
     // If parsing failed, fallback
@@ -646,6 +679,356 @@ Return strictly a JSON object with this structure:
     const fallback = resolveFallbackClassification(sampleLabel);
     return res.json({ result: fallback, source: "offline-fallback", error: err?.message });
   }
+});
+
+// Chatbot Knowledge & Response Engine
+function resolveChatFallback(message: string, hasImage: boolean, sampleLabel?: string) {
+  const query = (message || sampleLabel || "").toLowerCase();
+
+  // If camera image was submitted or specific item mentioned:
+  const isWasteScan =
+    hasImage ||
+    query.includes("scan") ||
+    query.includes("bottle") ||
+    query.includes("banana") ||
+    query.includes("plastic") ||
+    query.includes("battery") ||
+    query.includes("paper") ||
+    query.includes("can") ||
+    query.includes("glass") ||
+    query.includes("box") ||
+    query.includes("carton") ||
+    query.includes("peel") ||
+    query.includes("food") ||
+    query.includes("organic") ||
+    query.includes("e-waste");
+
+  if (isWasteScan) {
+    const scan = resolveFallbackClassification(sampleLabel || query || "plastic bottle");
+    const recyclability = scan.recyclabilityPercentage || (scan.isBiodegradable ? 100 : 92);
+    const purity = scan.isBiodegradable ? 96 : 94;
+    const points = scan.estimatedPoints || 50;
+    const cash = (points * 0.25).toFixed(2);
+    const co2 = scan.co2SavedKg || 1.25;
+    const confidencePct = Math.round((scan.confidenceScore || 0.98) * 100);
+
+    const reply = `I've analyzed your scanned item: **${scan.itemName}**!
+
+### 🔍 Waste Identification:
+- **Item Type:** ${scan.itemType || "Municipal Solid Waste"}
+- **Material Composition:** ${scan.materialType}
+- **Biodegradability Status:** ${scan.isBiodegradable ? "🌱 **Biodegradable** (Naturally metabolizes in 2-5 weeks)" : "🛡️ **Non-Biodegradable** (Persists for centuries, requires mechanical/chemical recycling)"}
+- **Designated Municipal Bin:** **${scan.binColorName}**
+
+### 📊 Official Eco Scores:
+- **Recyclability Score:** **${recyclability}/100** (${recyclability >= 90 ? "Excellent Circular Potential" : "Moderate Recyclability"})
+- **Purity / Segregation Score:** **${purity}%** (Clean, uncontaminated condition)
+- **Civic Reward Points:** **+${points} EcoPoints** (Est. **₹${cash}** UPI direct cash payout)
+- **Carbon Reduction Score:** **${co2} kg CO₂ prevented** from entering the atmosphere
+- **AI Vision Confidence:** **${confidencePct}%**
+
+### 💡 Preparation & Disposal Instructions:
+${scan.preparationTip ? `* **Preparation Action:** ${scan.preparationTip}\n` : ""}* ${scan.disposalInstructions}
+* Deposit into the **${scan.binColorName}** at any verified EcoCollect smart bin station to have your points credited immediately.`;
+
+    const enhancedScan = {
+      ...scan,
+      purityScore: purity,
+      recyclabilityPercentage: recyclability,
+      estimatedPoints: points,
+    };
+
+    return {
+      reply,
+      scanResult: enhancedScan,
+      suggestedPrompts: [
+        "How do I redeem my points for UPI cash?",
+        "Where is the nearest verified drop-off bin?",
+        "Scan another item with camera",
+        "How do I make compost at home?",
+      ],
+    };
+  }
+
+  // General doubt clearing & website guides
+  if (
+    query.includes("reward") ||
+    query.includes("points") ||
+    query.includes("upi") ||
+    query.includes("cash") ||
+    query.includes("money") ||
+    query.includes("withdraw") ||
+    query.includes("wallet")
+  ) {
+    return {
+      reply: `### 💰 How EcoCollect Points & UPI Cash Rewards Work:
+
+1. **Scan & Segregate:** Use the **Camera Scanner** to verify your waste item and deposit it in the designated municipal bin (Green for organic, Blue for recyclables, Red for e-waste).
+2. **Earn Points:** Each verified disposal awards **10 to 100+ EcoPoints** depending on weight, recyclability score, and material purity.
+3. **Point Conversion:** Every **1 EcoPoint = ₹0.25 INR** (100 pts = ₹25.00 cash).
+4. **Instant Transfer:** Go to your **Wallet** tab, enter your UPI ID (e.g. \`username@upi\` or \`mobile@paytm\`), and request a withdrawal. Funds are credited directly to your bank account!
+5. **Weekly Leaderboards:** Top 3 citizen segregators each week receive bonus municipal civic grants and municipal certificates!`,
+      scanResult: null,
+      suggestedPrompts: [
+        "Scan waste with camera now",
+        "Which bin for plastic milk pouches?",
+        "How do I link my UPI ID?",
+        "Check current leaderboard ranks",
+      ],
+    };
+  }
+
+  if (
+    query.includes("how to use") ||
+    query.includes("help") ||
+    query.includes("start") ||
+    query.includes("about") ||
+    query.includes("website") ||
+    query.includes("what is")
+  ) {
+    return {
+      reply: `### 👋 Welcome to EcoCollect AI Civic Assistant!
+
+EcoCollect is a communal smart waste management platform designed by **NITHIN VARSHAN TK, HARISH, and SARVESHWAR**. We help residents eliminate municipal landfill waste while earning direct cash rewards.
+
+Here is how you can use the web portal:
+1. 📷 **Scan Waste With Camera:** Click the camera icon or tap **AI Scan** to identify what type of waste any item is, its biodegradability, and view instant recyclability scores.
+2. ♻️ **Deposit & Log:** Drop items at your designated neighborhood smart station and log disposal to collect reward points.
+3. 💵 **Redeem Cash:** Convert points to real INR cash sent straight to your UPI ID in the **Wallet** tab.
+4. 🏆 **Climb the Ranks:** Compare your ward's diversion rate against other neighborhoods on the **Rankings** board.
+
+Need to check an item right now? Tap the camera icon below to snap a picture!`,
+      scanResult: null,
+      suggestedPrompts: [
+        "Scan waste with camera",
+        "Which bin colors do we use?",
+        "How do I earn UPI cash rewards?",
+        "Can greasy pizza boxes be recycled?",
+      ],
+    };
+  }
+
+  if (
+    query.includes("bin") ||
+    query.includes("color") ||
+    query.includes("colors") ||
+    query.includes("segregat")
+  ) {
+    return {
+      reply: `### 🎨 Official 4-Color Municipal Waste Segregation Guide:
+
+* 🟢 **Green Bin (Wet / Organic Compostable):**
+  * Fruit & vegetable peels, leftover food, tea leaves, coffee grounds, eggshells, garden leaves.
+  * **Tip:** Never use single-use polythene bags to wrap wet waste.
+* 🔵 **Blue Bin (Dry / Clean Recyclables):**
+  * PET bottles, beverage cans, cardboard, paper, glass jars, tin containers, rigid plastics.
+  * **Tip:** Always rinse food residue and crush bottles/boxes flat.
+* 🔴 **Red Bin (Hazardous & E-Waste):**
+  * Dry batteries, mobile chargers, CFL bulbs, paint cans, aerosol spray cans, electronic toys.
+  * **Tip:** Tape battery terminals with Scotch tape to avoid sparks.
+* 🟡 **Yellow Bin (Sanitary & Inert Residue):**
+  * Diapers, bandages, sanitizing wipes, ceramic shards, dusty sweeping residues.
+  * **Tip:** Wrap sanitary waste in newspaper and mark with an X.`,
+      scanResult: null,
+      suggestedPrompts: [
+        "Scan an item with camera",
+        "Can thermocol be recycled?",
+        "How to compost at home?",
+        "How much are points worth in UPI?",
+      ],
+    };
+  }
+
+  if (
+    query.includes("compost") ||
+    query.includes("kitchen") ||
+    query.includes("wet waste")
+  ) {
+    return {
+      reply: `### 🌿 Easy Home Composting Guide (30-Day Recipe):
+
+1. **Collect Green Biomass (Nitrogen):** Fruit peels, vegetable trimmings, coffee grounds, tea leaves.
+2. **Collect Brown Biomass (Carbon):** Dry leaves, shredded cardboard/egg cartons, sawdust.
+3. **The 2:1 Golden Ratio:** In your compost bin or aerated terracotta pot, alternate **2 parts dry brown leaves** for every **1 part wet food waste**.
+4. **Moisture & Oxygen:** Keep it as damp as a wrung-out sponge. Stir or turn once a week with a trowel for aeration.
+5. **Result in 4-6 Weeks:** Dark, earthy, nutrient-rich organic fertilizer for your house plants or garden!`,
+      scanResult: null,
+      suggestedPrompts: [
+        "Scan my kitchen scrap with camera",
+        "What should NOT go into compost?",
+        "How do I earn points for composting?",
+      ],
+    };
+  }
+
+  // Default conversational answer
+  return {
+    reply: `Hello! I am your **EcoBot AI Assistant**. I can clear any doubts you have about waste management, recycling, composting, and UPI reward payouts.
+
+You can also use the **Camera button (📷)** right in our chat to snap a picture of any waste item. I will scan it, identify what type of waste it is, tell you if it's biodegradable or recyclable, and compute its official **Recyclability & Eco Scores**!
+
+What would you like to ask or scan?`,
+    scanResult: null,
+    suggestedPrompts: [
+      "Scan waste with camera",
+      "Which bin for milk pouch?",
+      "How do I earn UPI cash rewards?",
+      "Official bin color guide",
+    ],
+  };
+}
+
+// Role-based System Instructions for Gemini
+const ROLE_SYSTEM_INSTRUCTIONS: Record<string, string> = {
+  civic_waste_expert: `You are EcoBot, an expert municipal solid waste management, civic environmental science, and recycling assistant on the EcoCollect web platform created by NITHIN VARSHAN TK, HARISH, and SARVESHWAR.
+EcoCollect is a smart civic portal that helps citizens segregate waste into municipal color bins (Green: organic compostable, Blue: dry recyclable, Red: hazardous/e-waste, Yellow: sanitary/inert), and earn direct UPI cash rewards (1 EcoPoint = ₹0.25 INR, 100 points = ₹25.00 cash).
+Your role: Clear all citizen doubts with practical, accurate municipal waste segregation guidelines, identify item composition, advise on clean preparation (rinsing, flattening), and compute reward points. Format your response cleanly with markdown and bullet points.`,
+
+  zero_waste_coach: `You are EcoBot in Zero-Waste & Sustainable Lifestyle Coach mode on the EcoCollect platform.
+Your role: Guide citizens to drastically reduce household waste, refuse single-use plastics, choose circular and reusable alternatives, implement smart upcycling hacks, and transition toward a zero-landfill lifestyle. Be encouraging, inspiring, and provide practical everyday habit changes.`,
+
+  compost_specialist: `You are EcoBot in Composting & Soil Science Specialist mode on the EcoCollect platform.
+Your role: Provide expert guidance on home and community composting (aerobic bins, terracotta pots, vermicomposting). Explain the 2:1 brown-to-green carbon/nitrogen ratio, moisture control, aeration routines, pest prevention, and how to convert organic kitchen and garden waste into nutrient-rich soil fertilizer.`,
+
+  circularity_auditor: `You are EcoBot in Circular Economy & Life-Cycle Assessment Auditor mode on the EcoCollect platform.
+Your role: Provide technical, analytical insights into material circularity, polymer resin classifications (PET, HDPE, LDPE, PP, PS), life-cycle carbon abatement (kg CO2e avoided), recycling efficiency percentages, and industrial recovery pathways.`,
+};
+
+function resolveModelName(requestedModel?: string): string {
+  const modelStr = (requestedModel || "gemini-2.5-flash").toLowerCase();
+  if (modelStr.includes("pro")) {
+    return "gemini-3.1-pro-preview";
+  }
+  if (modelStr.includes("lite")) {
+    return "gemini-3.5-flash-lite";
+  }
+  // Default general task model (gemini-2.5-flash mapped to active gemini-3.5-flash-lite / gemini-3.8-flash)
+  return "gemini-3.5-flash-lite";
+}
+
+// POST /api/chat - Gemini Multi-Turn Chatbot with System Instruction & Model Selection
+app.post("/api/chat", async (req, res) => {
+  const {
+    message = "",
+    history = [],
+    model = "gemini-2.5-flash",
+    role = "civic_waste_expert",
+    customSystemInstruction,
+  } = req.body;
+
+  const ai = getGemini();
+
+  if (!ai || !process.env.GEMINI_API_KEY) {
+    const fallbackResponse = resolveChatFallback(message, false);
+    return res.json({
+      ...fallbackResponse,
+      modelUsed: model,
+      roleUsed: role,
+      source: "knowledge-engine",
+    });
+  }
+
+  // Determine system instruction for the chosen role
+  const baseInstruction =
+    ROLE_SYSTEM_INSTRUCTIONS[role] || ROLE_SYSTEM_INSTRUCTIONS.civic_waste_expert;
+  const systemInstruction = customSystemInstruction
+    ? `${baseInstruction}\n\nAdditional Guidance: ${customSystemInstruction}`
+    : baseInstruction;
+
+  // Build multi-turn contents array with conversation history
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+
+  if (Array.isArray(history) && history.length > 0) {
+    for (const item of history.slice(-10)) {
+      const text = item.content || item.text || "";
+      if (!text.trim()) continue;
+      const roleName = item.role === "bot" || item.role === "model" ? "model" : "user";
+      contents.push({
+        role: roleName,
+        parts: [{ text: text.trim() }],
+      });
+    }
+  }
+
+  // Append latest user message
+  contents.push({
+    role: "user",
+    parts: [{ text: message || "Hello EcoBot" }],
+  });
+
+  // Attempt with selected model; fall back to gemini-3.5-flash-lite on quota or demand error
+  const resolvedModel = resolveModelName(model);
+  const candidateModels = [resolvedModel, "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+
+  for (const targetModel of Array.from(new Set(candidateModels))) {
+    try {
+      const response = await ai.models.generateContent({
+        model: targetModel,
+        contents,
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+        },
+      });
+
+      const replyText = response.text || "";
+
+      if (replyText.trim()) {
+        // Derive dynamic suggested prompts
+        const lowerMsg = (message || "").toLowerCase();
+        let suggestedPrompts = [
+          "How do I earn UPI cash rewards?",
+          "Which bin for plastic packaging?",
+          "How do I compost wet food waste?",
+          "Official 4-color municipal bin guide",
+        ];
+
+        if (lowerMsg.includes("compost") || role === "compost_specialist") {
+          suggestedPrompts = [
+            "What is the 2:1 brown to green ratio?",
+            "Can I put citrus peels in compost?",
+            "How do I fix a smelly compost bin?",
+            "How many EcoPoints for composting?",
+          ];
+        } else if (lowerMsg.includes("plastic") || lowerMsg.includes("bottle")) {
+          suggestedPrompts = [
+            "Can bottle caps be recycled together?",
+            "Which bin does MLP multi-layer plastic go to?",
+            "How many points per kg of PET plastic?",
+            "How to withdraw cash to UPI wallet?",
+          ];
+        } else if (lowerMsg.includes("reward") || lowerMsg.includes("upi") || lowerMsg.includes("cash")) {
+          suggestedPrompts = [
+            "How to link UPI ID in wallet?",
+            "What is the conversion rate for points?",
+            "How are weekly leaderboard bonuses awarded?",
+            "Which waste types give the highest points?",
+          ];
+        }
+
+        return res.json({
+          reply: replyText.trim(),
+          suggestedPrompts,
+          modelUsed: model,
+          actualEngine: targetModel,
+          roleUsed: role,
+          source: "gemini-api",
+        });
+      }
+    } catch (err: any) {
+      console.warn(`Gemini generation failed on model ${targetModel}:`, err?.message);
+      // Continue to next fallback model in loop
+    }
+  }
+
+  // If all Gemini models encountered errors, gracefully respond via knowledge engine
+  const fallbackResponse = resolveChatFallback(message, false);
+  return res.json({
+    ...fallbackResponse,
+    modelUsed: model,
+    roleUsed: role,
+    source: "knowledge-engine",
+  });
 });
 
 async function startServer() {

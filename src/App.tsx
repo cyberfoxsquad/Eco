@@ -8,11 +8,13 @@ import { DisposalScreen } from './screens/DisposalScreen';
 import { WalletScreen } from './screens/WalletScreen';
 import { LeaderboardScreen } from './screens/LeaderboardScreen';
 import { AboutScreen } from './screens/AboutScreen';
+import { AssistantScreen } from './screens/AssistantScreen';
 import { AdminScreen } from './screens/AdminScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { ForbiddenScreen } from './screens/ForbiddenScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { EcoFooter } from './components/EcoFooter';
+import { EcoChatBot } from './components/EcoChatBot';
 
 const MainContent: React.FC = () => {
   const { currentRoute } = useEco();
@@ -23,6 +25,8 @@ const MainContent: React.FC = () => {
         return <HomeScreen />;
       case 'scanner':
         return <ScannerScreen />;
+      case 'assistant':
+        return <AssistantScreen />;
       case 'disposal':
         return <DisposalScreen />;
       case 'wallet':
@@ -64,6 +68,9 @@ const MainContent: React.FC = () => {
 
       <EcoFooter />
       <EcoBottomBar />
+
+      {/* Floating Global AI Waste Chatbot (hidden on camera scanner & dedicated assistant screens) */}
+      {currentRoute !== 'assistant' && currentRoute !== 'scanner' && <EcoChatBot />}
     </div>
   );
 };

@@ -19,9 +19,11 @@ import {
   BarChart3,
   Users,
   Clock,
+  MessageSquare,
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
 import { EcoAvatar, StatusBadge } from '../components/CommonComponents';
+import { EcoCollectLogo } from '../components/EcoCollectLogo';
 
 export const HomeScreen: React.FC = () => {
   const { currentUser, disposals, binStations, setCurrentRoute, setDraftDetails } = useEco();
@@ -119,16 +121,24 @@ export const HomeScreen: React.FC = () => {
           {/* Call to Actions */}
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
-              onClick={() => setCurrentRoute('scanner')}
-              className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm rounded-xl shadow-lg transition-all flex items-center gap-2"
+              onClick={() => setCurrentRoute('assistant')}
+              className="px-5 py-3 bg-linear-to-r from-emerald-400 via-teal-400 to-emerald-300 hover:brightness-110 text-slate-950 font-black text-sm rounded-xl shadow-lg transition-all flex items-center gap-2"
             >
-              <Camera size={18} />
-              <span>Scan Item with AI</span>
+              <MessageSquare size={18} />
+              <span>Ask AI Assistant</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentRoute('scanner')}
+              className="px-5 py-3 bg-white/10 hover:bg-white/20 text-white font-extrabold text-sm rounded-xl border border-white/20 transition-all flex items-center gap-2"
+            >
+              <Camera size={18} className="text-emerald-400" />
+              <span>Camera Scanner</span>
             </button>
 
             <button
               onClick={() => setCurrentRoute('disposal')}
-              className="px-6 py-3 bg-white/10 hover:bg-white/15 text-white font-bold text-sm rounded-xl border border-white/20 transition-all flex items-center gap-2"
+              className="px-5 py-3 bg-white/10 hover:bg-white/15 text-white font-bold text-sm rounded-xl border border-white/20 transition-all flex items-center gap-2"
             >
               <Recycle size={18} />
               <span>Find Smart Bins</span>
@@ -144,15 +154,27 @@ export const HomeScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Live System Indicator Badge in Corner */}
-        <div className="hidden md:flex absolute top-8 right-8 bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/15 flex-col items-end text-right">
-          <div className="flex items-center gap-1.5 text-xs text-emerald-300 font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Municipal Grid Active</span>
+        {/* Live System Indicator Badge & Brand Logo in Corner */}
+        <div className="hidden md:flex absolute top-8 right-8 flex-col items-end gap-2.5">
+          <div className="flex items-center gap-2.5 bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/15 shadow-sm">
+            <div className="w-8 h-8 rounded-xl bg-white/15 p-1 flex items-center justify-center">
+              <EcoCollectLogo className="w-full h-full" />
+            </div>
+            <div className="text-left">
+              <span className="text-xs font-black text-white font-heading block leading-none">EcoCollect</span>
+              <span className="text-[10px] text-emerald-300 font-semibold block mt-0.5">Circular Network</span>
+            </div>
           </div>
-          <span className="text-[11px] text-slate-300 mt-0.5">
-            {currentUser ? currentUser.ward : 'Green Valley Ward 4'}
-          </span>
+
+          <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/15 flex flex-col items-end text-right">
+            <div className="flex items-center gap-1.5 text-xs text-emerald-300 font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Municipal Grid Active</span>
+            </div>
+            <span className="text-[11px] text-slate-300 mt-0.5">
+              {currentUser ? currentUser.ward : 'Green Valley Ward 4'}
+            </span>
+          </div>
         </div>
 
         {/* Decorative background glow */}
