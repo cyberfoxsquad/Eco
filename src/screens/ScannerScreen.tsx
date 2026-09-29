@@ -24,6 +24,8 @@ import {
   Maximize2,
   Crosshair,
   AlertCircle,
+  VideoOff,
+  Smartphone,
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
 import { WasteScanResult } from '../types';
@@ -31,7 +33,7 @@ import { WasteScanResult } from '../types';
 export const ScannerScreen: React.FC = () => {
   const { setDraftDetails, setCurrentRoute } = useEco();
 
-  // Camera and Stream State
+  // Camera & Stream State
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -53,54 +55,96 @@ export const ScannerScreen: React.FC = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
 
+  // Refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const deviceCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const viewfinderRef = useRef<HTMLDivElement | null>(null);
 
-  // Start Camera Feed
+  // Robust Camera Startup with Progressive Fallbacks
   const startCamera = async (mode = facingMode) => {
     try {
       setCameraError(null);
       stopCamera();
 
-      // Attempt to access user media with environment preference
-      let stream: MediaStream;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera API is not supported on this browser. Please use Direct Device Camera or Upload Photo.');
+      }
+
+      let stream: MediaStream | null = null;
+
+      // 1. Try with preferred facing mode and high resolution
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: mode,
+            facingMode: { ideal: mode },
             width: { ideal: 1280, min: 640 },
             height: { ideal: 720, min: 480 },
           },
+          audio: false,
         });
-      } catch {
-        // Fallback to basic video constraint
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      } catch (err1) {
+        console.warn('Preferred camera constraint failed, trying basic facingMode:', err1);
+        // 2. Try with basic facing mode
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode },
+            audio: false,
+          });
+        } catch (err2) {
+          console.warn('Facing mode constraint failed, trying unconstrained video:', err2);
+          // 3. Fallback to any available video stream
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Unable to initialize video stream.');
       }
 
       mediaStreamRef.current = stream;
+
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        const video = videoRef.current;
+        video.srcObject = stream;
+        video.muted = true;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('autoplay', 'true');
+
+        // Play the video stream
+        try {
+          await video.play();
+        } catch (playErr) {
+          console.warn('Video play interrupted:', playErr);
+        }
 
         const videoTrack = stream.getVideoTracks()[0];
         const settings = videoTrack?.getSettings?.();
         if (settings && settings.width && settings.height) {
           setStreamResolution({ width: settings.width, height: settings.height });
-        } else if (videoRef.current.videoWidth) {
+        } else if (video.videoWidth) {
           setStreamResolution({
-            width: videoRef.current.videoWidth,
-            height: videoRef.current.videoHeight,
+            width: video.videoWidth,
+            height: video.videoHeight,
           });
         }
       }
+
       setIsCameraActive(true);
     } catch (err: any) {
       console.warn('Camera stream error:', err);
-      setCameraError(
-        'Camera access unavailable or permission not yet granted. You can launch camera manually, upload a photo, or drag and drop an image.'
-      );
+      const msg =
+        err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
+          ? 'Camera access permission was declined. Please allow camera permissions in your browser or tap "Direct Device Camera" below.'
+          : err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError'
+          ? 'No physical camera detected on this device. You can upload a photo or tap "Direct Device Camera".'
+          : err?.message || 'Camera is currently unavailable. Tap "Direct Device Camera" to take a photo directly.';
+      setCameraError(msg);
       setIsCameraActive(false);
     }
   };
@@ -108,18 +152,35 @@ export const ScannerScreen: React.FC = () => {
   const toggleFacingMode = () => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment';
     setFacingMode(nextMode);
-    if (isCameraActive) {
-      startCamera(nextMode);
-    }
+    startCamera(nextMode);
   };
 
   const stopCamera = () => {
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Error stopping track:', e);
+        }
+      });
       mediaStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
   };
+
+  // Synchronize video element when stream is active
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && mediaStreamRef.current) {
+      if (videoRef.current.srcObject !== mediaStreamRef.current) {
+        videoRef.current.srcObject = mediaStreamRef.current;
+        videoRef.current.play().catch((e) => console.warn('Sync play error:', e));
+      }
+    }
+  }, [isCameraActive]);
 
   const stopSpeaking = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -147,8 +208,8 @@ export const ScannerScreen: React.FC = () => {
     window.speechSynthesis.speak(utterance);
   };
 
+  // On mount: attempt to start camera cleanly
   useEffect(() => {
-    // Automatically attempt camera launch on initial load
     startCamera();
 
     return () => {
@@ -157,7 +218,8 @@ export const ScannerScreen: React.FC = () => {
     };
   }, []);
 
-  // Take high resolution snapshot from video
+  // Take high resolution snapshot from video WITHOUT stopping camera
+  // (Camera stays active so it ALWAYS shows what it is capturing!)
   const takeSnapshot = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -170,23 +232,44 @@ export const ScannerScreen: React.FC = () => {
 
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      // Draw exact frame
+      // Draw the exact frame currently on screen
       ctx.drawImage(video, 0, 0, width, height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
-      // Trigger shutter flash visual feedback
+      // Trigger tactile shutter flash animation
       setShutterFlash(true);
       setTimeout(() => setShutterFlash(false), 220);
 
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setCapturedImage(dataUrl);
       setCapturedTimestamp(timestamp);
-      stopCamera();
+
+      // NOTE: We deliberately do NOT stop the camera here!
+      // The camera continues to stream live video so it ALWAYS shows what it is capturing!
 
       classifyItem({ imageBase64: dataUrl });
     }
   };
 
+  // Handle direct native hardware camera capture
+  const handleDirectCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setCapturedImage(dataUrl);
+      setCapturedTimestamp(timestamp);
+      classifyItem({ imageBase64: dataUrl, hint: file.name.replace(/\.[^/.]+$/, '') });
+    };
+    reader.readAsDataURL(file);
+    // Reset input value so same photo can be re-selected if needed
+    e.target.value = '';
+  };
+
+  // Handle regular file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -197,12 +280,13 @@ export const ScannerScreen: React.FC = () => {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setCapturedImage(dataUrl);
       setCapturedTimestamp(timestamp);
-      stopCamera();
       classifyItem({ imageBase64: dataUrl, hint: file.name.replace(/\.[^/.]+$/, '') });
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
+  // Handle drag and drop of photos
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingOver(false);
@@ -214,7 +298,6 @@ export const ScannerScreen: React.FC = () => {
         const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setCapturedImage(dataUrl);
         setCapturedTimestamp(timestamp);
-        stopCamera();
         classifyItem({ imageBase64: dataUrl, hint: file.name.replace(/\.[^/.]+$/, '') });
       };
       reader.readAsDataURL(file);
@@ -258,7 +341,6 @@ export const ScannerScreen: React.FC = () => {
   const handleTextSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
-    stopCamera();
     classifyItem({ hint: searchQuery.trim() });
   };
 
@@ -273,14 +355,23 @@ export const ScannerScreen: React.FC = () => {
     setCurrentRoute('disposal');
   };
 
-  const resetScanner = () => {
+  // Retake / Reset Action: Clears previous capture, resets results, and brings user back to live camera
+  const handleRetake = () => {
     stopSpeaking();
     setScanResult(null);
     setCapturedImage(null);
     setCapturedTimestamp(null);
-    setCameraError(null);
     setSearchQuery('');
-    startCamera();
+
+    // Ensure camera is active and streaming live
+    if (!isCameraActive) {
+      startCamera();
+    }
+
+    // Scroll smoothly to viewfinder
+    if (viewfinderRef.current) {
+      viewfinderRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   };
 
   return (
@@ -297,77 +388,127 @@ export const ScannerScreen: React.FC = () => {
             </span>
           </div>
 
-          {/* Voice Auto-Speak Toggle */}
-          <button
-            onClick={() => setAutoSpeak(!autoSpeak)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
-              autoSpeak
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                : 'bg-slate-100 text-slate-500 border-slate-200'
-            }`}
-            title="Toggle automatic voice speech when items are identified"
-          >
-            {autoSpeak ? <Volume2 size={13} className="text-emerald-600" /> : <VolumeX size={13} />}
-            <span>{autoSpeak ? 'Voice Feedback: ON' : 'Voice Feedback: OFF'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Quick Retake Button (Visible when capture or result exists) */}
+            {(capturedImage || scanResult) && (
+              <button
+                onClick={handleRetake}
+                className="flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 transition-colors shadow-2xs"
+                title="Discard current capture and retake a new photo"
+              >
+                <RefreshCw size={12} className="text-amber-700" />
+                <span>Retake</span>
+              </button>
+            )}
+
+            {/* Voice Auto-Speak Toggle */}
+            <button
+              onClick={() => setAutoSpeak(!autoSpeak)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                autoSpeak
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+              title="Toggle automatic voice speech when items are identified"
+            >
+              {autoSpeak ? <Volume2 size={13} className="text-emerald-600" /> : <VolumeX size={13} />}
+              <span>{autoSpeak ? 'Voice: ON' : 'Voice: OFF'}</span>
+            </button>
+          </div>
         </div>
 
         <h1 className="text-2xl font-extrabold text-slate-900 font-heading mt-1">
           Smart Waste Material Scanner
         </h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Point your camera at any waste item or upload a picture. The AI scans and shows what it captures, classifies <strong>material composition</strong>, determines <strong>biodegradability</strong>, and provides <strong>exact recycling instructions</strong>.
+          Live camera stays active and continuously shows what it's capturing. Point at any item, tap Capture to inspect, and retake anytime with 1 click.
         </p>
       </div>
 
       {/* Hidden canvas for capturing frames */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* VIEWFINDER & CAPTURE DISPLAY */}
-      <div className="space-y-2">
+      {/* Hidden native hardware camera input (Direct fallback that always works) */}
+      <input
+        ref={deviceCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleDirectCameraCapture}
+        className="hidden"
+      />
+
+      {/* Hidden file upload input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
+      {/* VIEWFINDER & LIVE CAPTURE DISPLAY */}
+      <div ref={viewfinderRef} className="space-y-2">
         {/* Viewfinder Status Subheader */}
         <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-500">
           <div className="flex items-center gap-2">
             {isCameraActive ? (
-              <span className="inline-flex items-center gap-1.5 text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+              <span className="inline-flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                Live Camera Feed Active
-              </span>
-            ) : capturedImage ? (
-              <span className="inline-flex items-center gap-1.5 text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                <Eye size={12} />
-                Showing Captured Frame {capturedTimestamp ? `(${capturedTimestamp})` : ''}
+                Live Camera Active • Always Capturing
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-slate-400">
-                <Radio size={12} />
-                Camera Inactive
+                <VideoOff size={12} />
+                Camera Offline
               </span>
             )}
           </div>
 
-          {isCameraActive && (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            {isCameraActive ? (
+              <>
+                <button
+                  onClick={() => setShowGrid(!showGrid)}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold transition-colors ${
+                    showGrid ? 'bg-slate-800 text-white border-slate-700' : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                  title="Toggle framing grid"
+                >
+                  <Grid size={11} />
+                  <span>Grid</span>
+                </button>
+                <button
+                  onClick={toggleFacingMode}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold transition-colors"
+                  title="Switch between front and rear camera"
+                >
+                  <SwitchCamera size={11} />
+                  <span>{facingMode === 'environment' ? 'Rear' : 'Front'}</span>
+                </button>
+                <button
+                  onClick={stopCamera}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold transition-colors"
+                  title="Pause live camera feed"
+                >
+                  <VideoOff size={11} />
+                  <span>Pause</span>
+                </button>
+              </>
+            ) : (
               <button
-                onClick={() => setShowGrid(!showGrid)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold transition-colors ${
-                  showGrid ? 'bg-slate-800 text-white border-slate-700' : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}
-                title="Toggle framing grid"
+                onClick={() => startCamera()}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition-colors shadow-2xs"
+                title="Start live camera stream"
               >
-                <Grid size={11} />
-                <span>Grid</span>
+                <Camera size={11} />
+                <span>Start Live Feed</span>
               </button>
-              {streamResolution && (
-                <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
-                  {streamResolution.width}×{streamResolution.height}
-                </span>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* MAIN CAMERA / CAPTURE CONTAINER */}
+        {/* MAIN CAMERA CONTAINER - Video ALWAYS stays active and rendered when camera is on */}
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -384,18 +525,29 @@ export const ScannerScreen: React.FC = () => {
             <div className="absolute inset-0 bg-white z-50 pointer-events-none animate-out fade-out duration-200" />
           )}
 
-          {isCameraActive ? (
-            <>
-              {/* Live Video Stream */}
-              <video
-                ref={videoRef}
-                playsInline
-                autoPlay
-                muted
-                className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
-              />
+          {/* THE LIVE VIDEO ELEMENT: Always present in the DOM */}
+          <video
+            ref={videoRef}
+            playsInline
+            autoPlay
+            muted
+            onLoadedMetadata={() => {
+              if (videoRef.current) {
+                setStreamResolution({
+                  width: videoRef.current.videoWidth,
+                  height: videoRef.current.videoHeight,
+                });
+              }
+            }}
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              isCameraActive ? 'opacity-100' : 'opacity-0 hidden'
+            } ${facingMode === 'user' ? '-scale-x-100' : ''}`}
+          />
 
-              {/* Rule of Thirds Grid Overlay */}
+          {/* ACTIVE LIVE CAMERA OVERLAYS */}
+          {isCameraActive && (
+            <>
+              {/* Rule of Thirds Grid */}
               {showGrid && (
                 <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3 z-10 opacity-30">
                   <div className="border-r border-b border-white/40" />
@@ -404,16 +556,16 @@ export const ScannerScreen: React.FC = () => {
                   <div className="border-r border-b border-white/40" />
                   <div className="border-r border-b border-white/40" />
                   <div className="border-b border-white/40" />
-                  <div className="border-r border-white/40" />
-                  <div className="border-r border-white/40" />
+                  <div className="border-r border-b border-white/40" />
+                  <div className="border-r border-b border-white/40" />
                   <div />
                 </div>
               )}
 
-              {/* TARGETING RETICLE & LIVE CAPTURE SCOPE */}
+              {/* TARGETING RETICLE & SCOPE (Shows what it's capturing) */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                 <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
-                  {/* Outer Targeting Corners */}
+                  {/* Outer Targeting Brackets */}
                   <div className="absolute top-0 left-0 w-8 h-8 border-t-3 border-l-3 border-emerald-400 rounded-tl-xl" />
                   <div className="absolute top-0 right-0 w-8 h-8 border-t-3 border-r-3 border-emerald-400 rounded-tr-xl" />
                   <div className="absolute bottom-0 left-0 w-8 h-8 border-b-3 border-l-3 border-emerald-400 rounded-bl-xl" />
@@ -431,160 +583,263 @@ export const ScannerScreen: React.FC = () => {
                   <div className="absolute bottom-3 text-center bg-black/70 backdrop-blur-md px-3 py-1 rounded-full border border-emerald-500/40">
                     <p className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                      Capturing Item in Target Scope
+                      Live Scope • Aim & Capture Item
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Top Controls Bar */}
-              <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between">
-                <div className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/10 text-[11px] font-semibold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                  <span>LIVE CAPTURE MONITOR</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={toggleFacingMode}
-                    className="p-2.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md text-white border border-white/20 text-xs flex items-center justify-center transition-all shadow-md active:scale-90"
-                    title={`Switch Camera (Currently: ${facingMode === 'environment' ? 'Rear' : 'Front'})`}
-                  >
-                    <SwitchCamera size={16} />
-                  </button>
+              {/* Top Live Status Pill */}
+              <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+                <div className="px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-white border border-white/10 text-[11px] font-semibold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>SHOWING LIVE CAPTURE</span>
+                  {streamResolution && (
+                    <span className="text-[10px] text-emerald-300 font-mono hidden sm:inline">
+                      ({streamResolution.width}×{streamResolution.height})
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Shutter Button & Capture Bar */}
-              <div className="absolute bottom-5 left-0 right-0 flex flex-col items-center justify-center gap-2 z-20">
+              {/* Picture-in-Picture Thumbnail of Last Captured Snapshot (if taken) */}
+              {capturedImage && (
+                <div
+                  onClick={() => setIsEnlargedPreviewOpen(true)}
+                  className="absolute top-3 right-3 z-20 w-20 h-16 rounded-xl overflow-hidden border-2 border-emerald-400/80 shadow-2xl cursor-pointer group bg-black/60 backdrop-blur-xs"
+                  title="Click to view full captured frame"
+                >
+                  <img
+                    src={capturedImage}
+                    alt="Captured frame thumbnail"
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                    <Eye size={14} className="text-white drop-shadow-md" />
+                  </div>
+                  <span className="absolute bottom-0 inset-x-0 bg-emerald-950/90 text-emerald-300 text-[8px] font-bold text-center py-0.5">
+                    CAPTURED
+                  </span>
+                </div>
+              )}
+
+              {/* BOTTOM SHUTTER & RETAKE CONTROLS BAR */}
+              <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-4 z-20">
+                {/* Retake Button (appears next to shutter when a frame has already been captured) */}
+                {capturedImage && (
+                  <button
+                    onClick={handleRetake}
+                    className="px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-xl transition-all hover:scale-105 active:scale-95 border-2 border-amber-300"
+                    title="Retake a new shot"
+                  >
+                    <RefreshCw size={14} />
+                    <span>Retake</span>
+                  </button>
+                )}
+
+                {/* Primary Shutter Button */}
                 <button
                   id="scanner_shutter_button"
                   onClick={takeSnapshot}
-                  className="w-18 h-18 rounded-full bg-white text-emerald-700 flex items-center justify-center p-1.5 shadow-2xl hover:scale-105 active:scale-95 transition-all ring-4 ring-emerald-500/30 group"
-                  title="Capture & Scan Target"
+                  className="w-18 h-18 rounded-full bg-white text-emerald-700 flex items-center justify-center p-1.5 shadow-2xl hover:scale-105 active:scale-95 transition-all ring-4 ring-emerald-500/40 group"
+                  title="Capture what the camera is seeing now"
                 >
                   <div className="w-full h-full rounded-full border-2 border-emerald-600 flex items-center justify-center bg-emerald-50 group-hover:bg-emerald-100 transition-colors">
                     <Camera size={26} className="text-emerald-700" />
                   </div>
                 </button>
-                <span className="text-[11px] font-bold text-white bg-black/60 px-3 py-0.5 rounded-full backdrop-blur-xs border border-white/10 shadow-xs">
-                  Tap to Capture What's in Frame
-                </span>
+
+                {/* Direct Hardware Camera or Photo Switcher */}
+                <button
+                  onClick={() => deviceCameraInputRef.current?.click()}
+                  className="p-3 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md border border-white/20 text-xs flex items-center justify-center transition-all shadow-lg active:scale-90"
+                  title="Open direct device camera app"
+                >
+                  <Smartphone size={16} />
+                </button>
               </div>
             </>
-          ) : capturedImage ? (
-            /* WHAT WAS CAPTURED DISPLAY */
-            <div className="relative w-full h-full">
-              <img
-                src={capturedImage}
-                alt="Captured Waste Item"
-                className="w-full h-full object-cover"
-              />
+          )}
 
-              {/* Framing Reticle on Captured Image */}
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-56 h-56 border border-emerald-400/40 rounded-2xl relative">
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
-                </div>
-              </div>
-
-              {/* Captured Frame Tag */}
-              <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
-                <div className="px-3 py-1.5 rounded-xl bg-black/75 backdrop-blur-md text-white border border-emerald-500/30 text-[11px] font-bold flex items-center gap-2 shadow-lg">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <span>Captured Frame</span>
-                  {capturedTimestamp && <span className="text-emerald-300 font-mono">@{capturedTimestamp}</span>}
-                </div>
-              </div>
-
-              {/* Top Right Quick Actions on Captured Image */}
-              <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
-                <button
-                  onClick={() => setIsEnlargedPreviewOpen(true)}
-                  className="p-2 rounded-xl bg-black/75 hover:bg-black/90 backdrop-blur-md text-white border border-white/20 text-xs transition-all shadow-md"
-                  title="Enlarge captured frame"
-                >
-                  <Maximize2 size={15} />
-                </button>
-                <button
-                  onClick={resetScanner}
-                  className="px-3 py-1.5 rounded-xl bg-black/75 hover:bg-black/90 backdrop-blur-md text-white border border-white/20 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
-                  title="Retake photo with camera"
-                >
-                  <RefreshCw size={13} />
-                  <span>Retake</span>
-                </button>
-              </div>
-
-              {/* Scanning Active Overlay */}
-              {isScanning && (
-                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-30 animate-in fade-in duration-150">
-                  <div className="relative mb-4">
-                    <div className="w-14 h-14 rounded-full border-3 border-emerald-400 border-t-transparent animate-spin" />
-                    <Sparkles size={20} className="text-emerald-400 absolute inset-0 m-auto" />
-                  </div>
-                  <h3 className="text-base font-bold font-heading">Analyzing Captured Frame...</h3>
-                  <p className="text-xs text-slate-300 mt-1 max-w-xs">
-                    Gemini Vision is inspecting pixel structures, material compositions, and recycling routes.
-                  </p>
-                  <div className="mt-3 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
-                    Detecting: Polymers • Biomass • Metals • Recyclability
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            /* CAMERA INACTIVE / LAUNCH PROMPT */
-            <div className="p-6 text-center text-white space-y-4">
+          {/* CAMERA INACTIVE / ACCESSIBILITY PROMPT */}
+          {!isCameraActive && (
+            <div className="p-6 text-center text-white space-y-4 max-w-md">
               <div className="w-16 h-16 rounded-2xl bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto shadow-inner">
                 <Camera size={32} />
               </div>
               <div>
-                <h3 className="text-base font-bold font-heading">AI Camera Scanner Ready</h3>
-                <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
-                  Launch the live camera to capture any item or drag and drop a photo to analyze.
+                <h3 className="text-base font-bold font-heading">Camera Access Ready</h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  Start the live camera to continuously show what it's capturing, or open your direct device camera to snap a photo.
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+              {/* 3 Accessible Camera / Upload Methods */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
                 <button
                   id="scanner_start_camera_btn"
                   onClick={() => startCamera()}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95"
                 >
                   <Camera size={16} />
-                  <span>Launch Live Camera</span>
+                  <span>Start Live Camera</span>
+                </button>
+
+                <button
+                  onClick={() => deviceCameraInputRef.current?.click()}
+                  className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95"
+                  title="Directly opens native phone/tablet camera"
+                >
+                  <Smartphone size={16} />
+                  <span>Direct Device Camera</span>
                 </button>
 
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95"
+                  className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
                 >
                   <Upload size={16} />
                   <span>Upload Photo</span>
                 </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
               </div>
 
               {cameraError && (
-                <div className="text-[11px] text-amber-200 bg-amber-950/60 p-3 rounded-xl border border-amber-800/60 max-w-md mx-auto flex items-start gap-2 text-left">
+                <div className="text-[11px] text-amber-200 bg-amber-950/60 p-3 rounded-xl border border-amber-800/60 text-left flex items-start gap-2">
                   <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
-                  <span>{cameraError}</span>
+                  <div className="space-y-1">
+                    <span>{cameraError}</span>
+                    <div className="pt-1">
+                      <button
+                        onClick={() => startCamera()}
+                        className="underline text-amber-300 hover:text-white font-bold"
+                      >
+                        Try Starting Again
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* CURRENT CAPTURED ITEM INSPECTION CARD (Visible when a capture exists) */}
+      {capturedImage && (
+        <div className="bg-slate-900 text-white rounded-3xl p-4 sm:p-5 border border-slate-800 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
+                Current Captured Frame
+              </span>
+              {capturedTimestamp && (
+                <span className="text-[11px] text-slate-400 font-mono">
+                  @{capturedTimestamp}
+                </span>
+              )}
+            </div>
+
+            {/* RETAKE BUTTON ON CAPTURE CARD */}
+            <button
+              onClick={handleRetake}
+              className="px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 text-xs font-bold flex items-center gap-1.5 transition-colors"
+              title="Discard current capture and retake a new shot"
+            >
+              <RefreshCw size={13} className="text-amber-300" />
+              <span>Retake Photo</span>
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            {/* Captured Photo Preview Thumbnail */}
+            <div
+              onClick={() => setIsEnlargedPreviewOpen(true)}
+              className="relative w-full sm:w-44 h-36 rounded-2xl overflow-hidden border border-emerald-500/40 shrink-0 cursor-pointer group shadow-md"
+              title="Click to enlarge captured photo"
+            >
+              <img
+                src={capturedImage}
+                alt="Captured Waste Item"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+              />
+              <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 flex items-center justify-center transition-colors">
+                <Maximize2 size={18} className="text-white drop-shadow-md" />
+              </div>
+              <span className="absolute bottom-1 right-1 text-[9px] bg-black/80 px-2 py-0.5 rounded-sm font-mono text-emerald-300">
+                VIEW FULL
+              </span>
+            </div>
+
+            {/* Captured Status & Actions */}
+            <div className="flex-1 w-full space-y-2">
+              {isScanning ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-400">
+                    <div className="w-4 h-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin" />
+                    <span className="text-xs font-bold">Gemini Vision is analyzing this capture...</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Inspecting physical material, resin code, molecular biodegradability, and municipal recycling routes.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={handleRetake}
+                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <RefreshCw size={12} />
+                      <span>Cancel & Retake</span>
+                    </button>
+                  </div>
+                </div>
+              ) : scanResult ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Identified: {scanResult.itemName}
+                    </span>
+                    <span className="text-[11px] text-emerald-400 font-bold">
+                      {Math.round(scanResult.confidenceScore * 100)}% Match
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200">
+                    Material: <strong>{scanResult.materialType}</strong> ({scanResult.category})
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      onClick={handleRetake}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 transition-colors shadow-2xs"
+                    >
+                      <RefreshCw size={13} />
+                      <span>Retake New Photo</span>
+                    </button>
+                    <button
+                      onClick={() => deviceCameraInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <Smartphone size={13} />
+                      <span>Use Device Camera</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-300">
+                    Frame captured successfully. Ready to analyze.
+                  </p>
+                  <button
+                    onClick={handleRetake}
+                    className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Retake</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QUICK MATERIAL SEARCH LOOKUP */}
       <form onSubmit={handleTextSearch} className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
@@ -613,53 +868,27 @@ export const ScannerScreen: React.FC = () => {
       {/* SCAN RESULTS DISPLAY */}
       {scanResult && (
         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xl space-y-6 animate-in fade-in zoom-in-95">
-          {/* 0. WHAT WAS CAPTURED CARD: Transparent Visual Confirmation */}
-          {capturedImage && (
-            <div className="bg-slate-900 text-white rounded-2xl p-4 border border-slate-800 flex flex-col sm:flex-row items-center gap-4">
-              <div
-                onClick={() => setIsEnlargedPreviewOpen(true)}
-                className="relative w-28 h-24 sm:w-32 sm:h-24 rounded-xl overflow-hidden border border-emerald-500/40 shrink-0 cursor-pointer group shadow-md"
-                title="Click to enlarge captured photo"
-              >
-                <img
-                  src={capturedImage}
-                  alt="Captured waste frame"
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                />
-                <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-colors">
-                  <Maximize2 size={16} className="text-white drop-shadow-md" />
-                </div>
-                <span className="absolute bottom-1 right-1 text-[9px] bg-black/80 px-1.5 py-0.5 rounded-sm font-mono text-emerald-300">
-                  CAPTURED
-                </span>
-              </div>
-
-              <div className="flex-1 w-full space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-                    <CheckCircle2 size={12} />
-                    Item Captured By Scanner
-                  </span>
-                  {capturedTimestamp && (
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Timestamp: {capturedTimestamp}
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-sm font-black text-white font-heading">
-                  {scanResult.itemName}
-                </h3>
-                <p className="text-xs text-slate-300 leading-snug">
-                  Identified as <strong>{scanResult.materialType}</strong>. The scanner successfully captured and classified this item with Gemini Vision.
-                </p>
-                {modelUsed && (
-                  <span className="inline-block mt-1 text-[10px] text-emerald-300/80 font-mono">
-                    Model: {modelUsed}
-                  </span>
-                )}
-              </div>
+          {/* TOP RESULTS HEADER & RETAKE BAR */}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <span className="p-1 rounded-md bg-emerald-100 text-emerald-800">
+                <CheckCircle2 size={16} />
+              </span>
+              <span className="text-xs font-bold text-slate-900">
+                Material Classification Verdict
+              </span>
             </div>
-          )}
+
+            {/* RETAKE IN RESULTS */}
+            <button
+              onClick={handleRetake}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors shadow-2xs"
+              title="Clear results and retake another item with camera"
+            >
+              <RefreshCw size={13} className="text-slate-600" />
+              <span>Retake / Scan Next</span>
+            </button>
+          </div>
 
           {/* AUDIO SPOKEN VERDICT PLAYER */}
           <div className="bg-linear-to-r from-emerald-900 to-slate-900 rounded-2xl p-4 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
@@ -733,7 +962,7 @@ export const ScannerScreen: React.FC = () => {
 
             <div className="sm:text-right">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
-                Confidence
+                Confidence Match
               </span>
               <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700">
                 <CheckCircle2 size={13} className="text-emerald-600" />
@@ -836,7 +1065,6 @@ export const ScannerScreen: React.FC = () => {
               </h3>
             </div>
 
-            {/* In-depth Recycling Process Explanation */}
             <div className="p-4 rounded-2xl bg-blue-50/80 border border-blue-200 text-xs text-blue-950 leading-relaxed space-y-1.5">
               <div className="font-bold flex items-center gap-1.5 text-blue-900">
                 <Sparkles size={14} className="text-blue-600" />
@@ -847,7 +1075,6 @@ export const ScannerScreen: React.FC = () => {
               </p>
             </div>
 
-            {/* Directive Banner */}
             <div
               className="p-3.5 rounded-2xl border text-xs font-semibold leading-relaxed"
               style={{
@@ -953,7 +1180,7 @@ export const ScannerScreen: React.FC = () => {
             </div>
           </div>
 
-          {/* ACTION BUTTONS */}
+          {/* ACTION BUTTONS (With Prominent Retake Option) */}
           <div className="pt-2 flex flex-col sm:flex-row gap-3">
             <button
               id="proceed_to_disposal_btn"
@@ -966,11 +1193,11 @@ export const ScannerScreen: React.FC = () => {
 
             <button
               id="scan_another_item_btn"
-              onClick={resetScanner}
-              className="py-3.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+              onClick={handleRetake}
+              className="py-3.5 px-5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition-all hover:scale-[1.01] active:scale-[0.99]"
             >
               <RefreshCw size={14} />
-              <span>Scan Next Item</span>
+              <span>Retake / Scan Next</span>
             </button>
           </div>
         </div>
@@ -990,12 +1217,24 @@ export const ScannerScreen: React.FC = () => {
                   <span className="text-[10px] text-slate-400 font-mono">({capturedTimestamp})</span>
                 )}
               </div>
-              <button
-                onClick={() => setIsEnlargedPreviewOpen(false)}
-                className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setIsEnlargedPreviewOpen(false);
+                    handleRetake();
+                  }}
+                  className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1"
+                >
+                  <RefreshCw size={12} />
+                  <span>Retake</span>
+                </button>
+                <button
+                  onClick={() => setIsEnlargedPreviewOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
             <div className="p-3 bg-black flex items-center justify-center max-h-[70vh]">
               <img

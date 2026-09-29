@@ -131,6 +131,80 @@ const MODEL_OPTIONS: Array<{
   },
 ];
 
+// Helper function to render inline markdown like **bold** and `code`
+const renderInlineMarkdown = (text: string) => {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, pIdx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={pIdx} className="font-bold text-slate-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code key={pIdx} className="bg-slate-100 text-emerald-800 px-1 py-0.2 rounded text-[11px] font-mono">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+};
+
+// Structured markdown renderer for lines, headers, lists and bullets
+const renderFormattedContent = (content: string) => {
+  const lines = content.split('\n');
+  return lines.map((line, lineIdx) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return <div key={lineIdx} className="h-1.5" />;
+    }
+
+    if (trimmed.startsWith('### ')) {
+      return (
+        <h4 key={lineIdx} className="font-extrabold text-sm text-slate-900 mt-2 mb-1">
+          {renderInlineMarkdown(trimmed.replace('### ', ''))}
+        </h4>
+      );
+    }
+
+    if (trimmed.startsWith('## ')) {
+      return (
+        <h3 key={lineIdx} className="font-black text-sm text-slate-900 mt-2.5 mb-1">
+          {renderInlineMarkdown(trimmed.replace('## ', ''))}
+        </h3>
+      );
+    }
+
+    if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+      return (
+        <div key={lineIdx} className="flex items-start gap-1.5 ml-1 my-0.5">
+          <span className="text-emerald-500 font-bold shrink-0 mt-0.5">•</span>
+          <span className="leading-snug">{renderInlineMarkdown(trimmed.replace(/^[*-]\s+/, ''))}</span>
+        </div>
+      );
+    }
+
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    if (numMatch) {
+      return (
+        <div key={lineIdx} className="flex items-start gap-1.5 ml-1 my-0.5">
+          <span className="text-emerald-600 font-bold shrink-0">{numMatch[1]}.</span>
+          <span className="leading-snug">{renderInlineMarkdown(numMatch[2])}</span>
+        </div>
+      );
+    }
+
+    return (
+      <p key={lineIdx} className="my-0.5 leading-relaxed">
+        {renderInlineMarkdown(line)}
+      </p>
+    );
+  });
+};
+
 export const EcoChatBot: React.FC<EcoChatBotProps> = ({
   defaultOpen = false,
   standalone = false,
@@ -152,13 +226,26 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowModelDropdown(false);
+        setShowRoleDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const createInitialMessage = (role: ChatbotRole): ChatMessage => {
     const roleInfo = ROLE_DEFINITIONS[role];
     const citizenName = currentUser ? currentUser.name.split(' ')[0] : 'Citizen';
     return {
-      id: `msg-welcome-${role}`,
+      id: `msg-welcome-${role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       sender: 'bot',
       text: roleInfo.greeting.replace('Citizen', citizenName),
       timestamp: Date.now(),
@@ -172,9 +259,14 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
     createInitialMessage('civic_waste_expert'),
   ]);
 
-  // Scroll to bottom on new messages
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Scroll only the chat container without jumping outer window
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior,
+      });
+    }
   };
 
   useEffect(() => {
@@ -454,7 +546,7 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
       </div>
 
       {/* Gemini Controls Sub-Bar: Model Selector & Role Switcher */}
-      <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-2 text-xs relative shrink-0">
+      <div ref={dropdownRef} className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-2 text-xs relative shrink-0">
         {/* Model Selector Dropdown */}
         <div className="relative">
           <button
@@ -570,7 +662,7 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
       </div>
 
       {/* Messages Scroll Area - Single Thread */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/80">
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/80">
         {messages.map((msg) => {
           const isUser = msg.sender === 'user';
           return (
@@ -589,25 +681,8 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
                 }`}
               >
                 {/* Formatted Text Content */}
-                <div className="space-y-1.5 whitespace-pre-wrap font-sans">
-                  {msg.text.split('\n').map((line, idx) => {
-                    if (line.startsWith('### ')) {
-                      return (
-                        <h4 key={idx} className="font-extrabold text-sm text-slate-900 mt-2 mb-1">
-                          {line.replace('### ', '')}
-                        </h4>
-                      );
-                    }
-                    if (line.startsWith('* ') || line.startsWith('- ')) {
-                      return (
-                        <div key={idx} className="flex items-start gap-1.5 ml-1">
-                          <span className="text-emerald-500 font-bold">•</span>
-                          <span>{line.replace(/^[*-]\s+/, '')}</span>
-                        </div>
-                      );
-                    }
-                    return <p key={idx}>{line}</p>;
-                  })}
+                <div className="space-y-1 font-sans">
+                  {renderFormattedContent(msg.text)}
                 </div>
 
                 {/* Waste Scan Result Card with Scores if an item was queried */}
@@ -878,8 +953,6 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
             </span>
           </div>
         )}
-
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Input Bar & Multi-turn Controls */}

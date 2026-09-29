@@ -4,7 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: "25mb" }));
 
@@ -950,11 +950,15 @@ app.post("/api/chat", async (req, res) => {
     }
   }
 
-  // Append latest user message
-  contents.push({
-    role: "user",
-    parts: [{ text: message || "Hello EcoBot" }],
-  });
+  // Append latest user message if not already the last turn
+  const lastTurn = contents[contents.length - 1];
+  const trimmedMsg = (message || "Hello EcoBot").trim();
+  if (!lastTurn || lastTurn.role !== "user" || lastTurn.parts[0]?.text !== trimmedMsg) {
+    contents.push({
+      role: "user",
+      parts: [{ text: trimmedMsg }],
+    });
+  }
 
   // Attempt with selected model; fall back to gemini-3.5-flash-lite on quota or demand error
   const resolvedModel = resolveModelName(model);
@@ -1041,7 +1045,10 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
+    app.get("*", (req, res) => {
+      if (req.path.startsWith("/api/")) {
+        return res.status(404).json({ error: "API route not found" });
+      }
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
