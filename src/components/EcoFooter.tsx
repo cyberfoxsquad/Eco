@@ -236,7 +236,7 @@ export const EcoFooter: React.FC = () => {
         {/* Bottom copyright */}
         <div className="mt-12 pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div>
-            © {new Date().getFullYear()} EcoCollect Municipal Corporation. Built for Swachh Urban Mission. • Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR
+            © {new Date().getFullYear()} EcoCollect Municipal Corporation. Built for Swachh Urban Mission. • Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR, RAJAGURU, KANISHKAN
           </div>
           <div className="flex items-center gap-6">
             <button

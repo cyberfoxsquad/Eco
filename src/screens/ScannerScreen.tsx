@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useEco } from '../context/EcoContext';
 import { WasteScanResult } from '../types';
+import { classifyWasteItem } from '../services/aiService';
 
 export const ScannerScreen: React.FC = () => {
   const { setDraftDetails, setCurrentRoute } = useEco();
@@ -312,16 +313,7 @@ export const ScannerScreen: React.FC = () => {
     stopSpeaking();
 
     try {
-      const res = await fetch('/api/classify-waste', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: params.imageBase64,
-          sampleLabel: params.hint,
-        }),
-      });
-
-      const data = await res.json();
+      const data = await classifyWasteItem(params);
       if (data && data.result) {
         setScanResult(data.result);
         if (data.modelUsed) {

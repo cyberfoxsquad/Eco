@@ -789,7 +789,7 @@ ${scan.preparationTip ? `* **Preparation Action:** ${scan.preparationTip}\n` : "
     return {
       reply: `### 👋 Welcome to EcoCollect AI Civic Assistant!
 
-EcoCollect is a communal smart waste management platform designed by **NITHIN VARSHAN TK, HARISH, and SARVESHWAR**. We help residents eliminate municipal landfill waste while earning direct cash rewards.
+EcoCollect is a communal smart waste management platform designed by **NITHIN VARSHAN TK, HARISH, SARVESHWAR, RAJAGURU, and KANISHKAN**. We help residents eliminate municipal landfill waste while earning direct cash rewards.
 
 Here is how you can use the web portal:
 1. 📷 **Scan Waste With Camera:** Click the camera icon or tap **AI Scan** to identify what type of waste any item is, its biodegradability, and view instant recyclability scores.
@@ -880,7 +880,7 @@ What would you like to ask or scan?`,
 
 // Role-based System Instructions for Gemini
 const ROLE_SYSTEM_INSTRUCTIONS: Record<string, string> = {
-  civic_waste_expert: `You are EcoBot, an expert municipal solid waste management, civic environmental science, and recycling assistant on the EcoCollect web platform created by NITHIN VARSHAN TK, HARISH, and SARVESHWAR.
+  civic_waste_expert: `You are EcoBot, an expert municipal solid waste management, civic environmental science, and recycling assistant on the EcoCollect web platform created by NITHIN VARSHAN TK, HARISH, SARVESHWAR, RAJAGURU, and KANISHKAN.
 EcoCollect is a smart civic portal that helps citizens segregate waste into municipal color bins (Green: organic compostable, Blue: dry recyclable, Red: hazardous/e-waste, Yellow: sanitary/inert), and earn direct UPI cash rewards (1 EcoPoint = ₹0.25 INR, 100 points = ₹25.00 cash).
 Your role: Clear all citizen doubts with practical, accurate municipal waste segregation guidelines, identify item composition, advise on clean preparation (rinsing, flattening), and compute reward points. Format your response cleanly with markdown and bullet points.`,
 

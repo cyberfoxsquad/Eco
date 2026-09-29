@@ -30,6 +30,7 @@ import {
 import { useEco } from '../context/EcoContext';
 import { ChatMessage, WasteScanResult, GeminiModelType, ChatbotRole } from '../types';
 import { EcoCollectLogo } from './EcoCollectLogo';
+import { sendChatMessage } from '../services/aiService';
 
 interface EcoChatBotProps {
   defaultOpen?: boolean;
@@ -355,18 +356,12 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
         content: m.text,
       }));
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: textToSend,
-          history: historyPayload,
-          model: selectedModel,
-          role: selectedRole,
-        }),
+      const data = await sendChatMessage({
+        message: textToSend,
+        history: historyPayload,
+        model: selectedModel,
+        role: selectedRole,
       });
-
-      const data = await res.json();
 
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
@@ -374,8 +369,8 @@ export const EcoChatBot: React.FC<EcoChatBotProps> = ({
         text: data.reply || 'Here is the municipal waste guidance for your query.',
         scanResult: data.scanResult || undefined,
         suggestedPrompts: data.suggestedPrompts || ROLE_DEFINITIONS[selectedRole].starters,
-        modelUsed: data.modelUsed || selectedModel,
-        roleUsed: data.roleUsed || selectedRole,
+        modelUsed: (data.modelUsed as GeminiModelType) || selectedModel,
+        roleUsed: (data.roleUsed as ChatbotRole) || selectedRole,
         timestamp: Date.now(),
       };
 

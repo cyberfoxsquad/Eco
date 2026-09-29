@@ -241,7 +241,7 @@ export const AboutScreen: React.FC = () => {
 
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 text-emerald-300 text-xs font-semibold border border-white/10 backdrop-blur-xs">
             <Sparkles size={14} className="text-emerald-400" />
-            <span>Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR</span>
+            <span>Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR, RAJAGURU, KANISHKAN</span>
           </div>
 
           <div className="pt-2 flex flex-wrap gap-4">
@@ -722,7 +722,7 @@ export const AboutScreen: React.FC = () => {
           </div>
 
           <h3 className="text-2xl sm:text-3xl font-extrabold font-heading text-white tracking-tight">
-            Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR
+            Designed by NITHIN VARSHAN TK, HARISH, SARVESHWAR, RAJAGURU, KANISHKAN
           </h3>
 
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
@@ -738,6 +738,12 @@ export const AboutScreen: React.FC = () => {
             </div>
             <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-emerald-300 shadow-xs">
               SARVESHWAR
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-emerald-300 shadow-xs">
+              RAJAGURU
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-emerald-300 shadow-xs">
+              KANISHKAN
             </div>
           </div>
         </div>
